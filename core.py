@@ -232,7 +232,8 @@ class Memory(Subject):
 
     def clear(self):
         self.memory = [0]*65536
-        
+        self.notify()
+
     def load(self, filename):
         """load ihex file into memory"""
         if self.log: self.log.write('MEMORY: loading file %s\n' % filename)
@@ -248,6 +249,7 @@ class Memory(Subject):
                 value = int(l[9+i*2:11+i*2],16)
                 #print "%04x: %02x" % (address+i,value)
                 self.memory[address+i] = value
+        self.notify()
 
     def set(self, address, value, bytemode=0):
         """read from address"""
@@ -769,6 +771,7 @@ class Core(Subject):
         for r in self.R:
             r.set(0)
         self.memory.clear()
+        self.notify()
 
     def disassemble(self, pc):
         """disasseble current PC location and advance PC to the next instruction.
