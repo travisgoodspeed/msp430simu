@@ -2,70 +2,62 @@
 
 #import all of the wxPython GUI package
 from wxPython.wx import *
+from wxPython.grid import *
 
 import core
 
 ##################################################################
 ## view for disassebled memory
 ##################################################################
-class DisView(wxListCtrl):
-    def __init__(self, parent, core = None):
+class DisTable(wxPyGridTableBase):
+    """Data model for wxGrid """
+
+    def __init__(self, core = None):
+        wxPyGridTableBase.__init__(self)
         self.core = core
-        wxListCtrl.__init__(self, parent, -1, size=(420,250),
-                 style=wxLC_REPORT|wxLC_VIRTUAL|wxLC_HRULES|wxLC_VRULES)
-        self.InsertColumn(0, "Address")
-        self.InsertColumn(1, "Insn")
-        self.InsertColumn(2, "cycles")
-        self.SetColumnWidth(0, 60)
-        self.SetColumnWidth(1, 300)
-        self.SetColumnWidth(2, 40)
+        self.discache = []
 
-        self.SetItemCount(0)
-
-        self.attr1 = wxListItemAttr()
+        self.attr1 = wxGridCellAttr()
         self.attr1.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
 
-        self.attr2 = wxListItemAttr()
+        self.attr2 = wxGridCellAttr()
         self.attr2.SetBackgroundColour("yellow")
         self.attr2.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
 
-        EVT_LIST_ITEM_SELECTED(self, self.GetId(), self.OnItemSelected)
-        EVT_LIST_ITEM_ACTIVATED(self, self.GetId(), self.OnItemActivated)
 
-        self.discache = []
+    def GetNumberRows(self):
+        return 0xfff#len(self.discache)+1   #TODO: insert real size, but when its reread if it changes?
 
-    def OnItemSelected(self, event):
-        self.currentItem = event.m_itemIndex
+    def GetNumberCols(self):
+        return 3#18
 
-    def OnItemActivated(self, event):
-        self.currentItem = event.m_itemIndex
+    def IsEmptyCell(self, row, col):
+        return false
 
-    def getColumnText(self, index, col):
-        item = self.GetItem(index, col)
-        return item.GetText()
-
-    #---------------------------------------------------
-    # These methods are callbacks for implementing the
-    # "virtualness" of the list...
-    def OnGetItemText(self, item, col):
+    def GetValue(self, row, col):
         try:
-            return str(self.discache[item][1+col])
+            return str(self.discache[row][1+col])
         except IndexError:
             return ''
-        #return "Item %d, column %d" % (item, col)
 
-    def OnGetItemImage(self, item):
-        return 0
+    def SetValue(self, row, col, value):
+        pass    #SetValue is ignored
 
-    def OnGetItemAttr(self, item):
+
+    def GetColLabelValue(self, col):
+        return ("Address", "Insn", "Cycles")[col]
+
+    def GetAttr(self, row, col, huh):
+        #mark active line
         try:
-            if self.discache[item][0] == int(self.core.PC):
-                return self.attr2
+            if self.discache[row][0] == int(self.core.PC):
+                return self.attr2.Clone()
         except IndexError:
             pass
-        return self.attr1
+        return self.attr1.Clone()
 
     def disasseble(self, address, lines = 0):
+        #if not self.core: return
         self.discache = []
         linelist = []
         pc = core.PC(self.core, address)
@@ -80,36 +72,119 @@ class DisView(wxListCtrl):
             self.discache.append( (adr, '0x%04x' % adr, note, cycles) )
             if execfu is None and not lines:
                 break
-        self.SetItemCount(len(self.discache))
-        self.Refresh()
+        #self.SetItemCount(len(self.discache))
+        #self.Refresh()
         #self.dis.SetValue('\n'.join(linelist))
+
+
+#class DisView(wxListCtrl):
+class DisView(wxGrid):
+    def __init__(self, parent, core = None):
+        wxGrid.__init__(self, parent, -1, size=(420,250))
+        self.core = core
+
+        self.table = DisTable(self.core)
+        self.SetTable(self.table, true)
+
+        self.DisableDragRowSize()
+        #self.AutoSizeColumns()
+        self.SetRowLabelSize(0)
+#        self.SetColLabelSize(0)
+        self.SetColLabelValue(0, "Address")
+        self.SetColLabelValue(1, "Insn")
+        self.SetColLabelValue(2, "Cycles")
+
+        self.SetColSize(0,60)
+        self.SetColSize(1,300)
+        self.SetColSize(2,40)
+        #self.Fit()
+
+    def SetCore(self, core):
+        self.table.core = self.core = core
+
+    #update display
+    def disasseble(self, address, lines = 0):
+        self.table.disasseble(address, lines)
+        self.Refresh()
+
 
 ##################################################################
 ## view for memory as hexdump
 ##################################################################
 #table lines represent 16 bytes -> 0x1000 lines for 65k memory
+class MemTable(wxPyGridTableBase):
+    """Data model for wxGrid """
 
-class MemView(wxListCtrl):
-    def __init__(self, parent, core=None):
+    def __init__(self, core = None):
+        wxPyGridTableBase.__init__(self)
         self.core = core
-        wxListCtrl.__init__(self, parent, -1, size=(630,400),
-                 style=wxLC_REPORT|wxLC_VIRTUAL|wxLC_HRULES|wxLC_VRULES)
-        self.InsertColumn(0, "Address")
-        self.InsertColumn(1, "Content")
-        self.InsertColumn(2, "ASCII")
-        self.SetColumnWidth(0, 60)
-        self.SetColumnWidth(1, 400)
-        self.SetColumnWidth(2, 150)
-
-        self.SetItemCount(0x1000)
-
-        self.attr1 = wxListItemAttr()
-        self.attr1.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
-
-        EVT_LIST_ITEM_SELECTED(self, self.GetId(), self.OnItemSelected)
-        EVT_LIST_ITEM_ACTIVATED(self, self.GetId(), self.OnItemActivated)
-
+        self.discache = []
         self.attrcache = {}
+
+    def GetNumberRows(self):
+        return 0xfff
+
+    def GetNumberCols(self):
+        return 3#18
+
+    def IsEmptyCell(self, row, col):
+        return false
+
+    def GetValue(self, row, col):
+        if self.core:
+            return self.core.memory.hexline(row<<4)[col]   #very inefficient here!
+        else:
+            return ''
+
+    def SetValue(self, row, col, value):
+        #self.core.memory.set(row*16+col, value, bytemode=1)
+        pass    #SetValue is ignored
+
+    def CanHaveAttributes(self):
+        return true
+    
+    def GetAttr(self, row, col, huh):
+        #attr = self.attr1
+        attr = self.attrcache.get(row, None)
+        if not attr:
+            attr = wxGridCellAttr()
+            attr.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
+            attr.SetBackgroundColour('#%02x%02x%02x' % self.core.memory[row<<4].color)
+            self.attrcache[row] = attr
+        return attr.Clone()
+
+#class MemView(wxListCtrl):
+class MemView(wxGrid):
+    def __init__(self, parent, core=None):
+        wxGrid.__init__(self, parent, -1, size=(420,250))
+        self.core = core
+##        wxListCtrl.__init__(self, parent, -1, size=(630,400),
+##                 style=wxLC_REPORT|wxLC_VIRTUAL|wxLC_HRULES|wxLC_VRULES)
+##        self.InsertColumn(0, "Address")
+##        self.InsertColumn(1, "Content")
+##        self.InsertColumn(2, "ASCII")
+##        self.SetColumnWidth(0, 60)
+##        self.SetColumnWidth(1, 400)
+##        self.SetColumnWidth(2, 150)
+##
+##        self.SetItemCount(0x1000)
+##
+##        self.attr1 = wxListItemAttr()
+##        self.attr1.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
+##
+##        EVT_LIST_ITEM_SELECTED(self, self.GetId(), self.OnItemSelected)
+##        EVT_LIST_ITEM_ACTIVATED(self, self.GetId(), self.OnItemActivated)
+##
+##        self.attrcache = {}
+        self.table = MemTable(self.core)
+        self.SetTable(self.table, true)
+
+        self.DisableDragRowSize()
+        #self.AutoSizeColumns()
+        self.SetRowLabelSize(0)
+        self.SetColLabelSize(0)
+        self.SetColSize(1,400)
+        self.SetColSize(2,160)
 
     def OnItemSelected(self, event):
         self.currentItem = event.m_itemIndex
@@ -189,10 +264,12 @@ class MemoryFrame(wxFrame, core.Observer):
         #init a sizer for the window layout
         self.box = wxBoxSizer(wxVERTICAL)
         self.box.Add(self.mem, 1, wxEXPAND)
-        self.box.Fit(self)                   #layout window
-        #setup handler for window resize
         self.SetSizer(self.box)
         self.SetAutoLayout(1)
+        self.Layout()
+#        self.box.Fit(self)                   #layout window
+        self.Fit()
+
         EVT_CLOSE(self, self.OnCloseWindow)  #register window close handler
         EVT_SIZE(self, self.OnSizeWindow)
         EVT_TEXT_ENTER(self, self.TB_ADDRESS, self.OnGoClick)   #same as go button
@@ -216,7 +293,7 @@ class MemoryFrame(wxFrame, core.Observer):
             address = int(s,16)
         else:
             address = int(s)
-        self.mem.EnsureVisible(address/16)
+        self.mem.MakeCellVisible(address/16,0)  #TODO: how to make it display on the top of the window?
         
     def OnSizeWindow(self, event=None):
         self.update()       #init displays
@@ -393,7 +470,7 @@ class CoreFrame(wxFrame, core.Observer):
         self.core.memory.append(core.Multiplier(self.log))
         
         self.core.attach(self)     #register as observer
-        self.dis.core = self.core
+        self.dis.SetCore(self.core)
 
         self.hbox = wxBoxSizer(wxHORIZONTAL)
         self.hbox.Add(self.dis, 1, wxEXPAND)
