@@ -235,11 +235,11 @@ class Peripheral:
         raise NotImplementedError
 
     def set(self, address, value, bytemode=0):
-        """read from address"""
+        """write value to address"""
         raise NotImplementedError
 
     def get(self, address, bytemode=0):
-        """write value to address"""
+        """read from address"""
         raise NotImplementedError
 
 class Flash(Peripheral):
@@ -260,7 +260,7 @@ class Flash(Peripheral):
         self.values = [0xff] * (self.endaddress - self.startaddress + 1)
 
     def set(self, address, value, bytemode=0):
-        """read from address"""
+        """write value to address"""
         if bytemode:
             self.values[address-self.startaddress] = value & 0xff
         else:
@@ -268,7 +268,7 @@ class Flash(Peripheral):
             self.values[(address-self.startaddress & 0xfffe)+1] = (value>>8) & 0xff
 
     def get(self, address, bytemode=0):
-        """write value to address"""
+        """read from address"""
         if bytemode:
             value = self.values[address-self.startaddress]
         else:
@@ -278,7 +278,7 @@ class Flash(Peripheral):
         return value
 
 class RAM(Peripheral):
-    """flash memory"""
+    """RAM memory"""
     color = (0xaa, 0xff, 0x88)      #color for graphical representation
 
     def __init__(self, log, startaddress = 0x0200, endaddress = 0x02ff):
@@ -295,7 +295,7 @@ class RAM(Peripheral):
         self.values = [0] * (self.endaddress - self.startaddress + 1)
 
     def set(self, address, value, bytemode=0):
-        """read from address"""
+        """write value to address"""
         if bytemode:
             self.values[address-self.startaddress] = value & 0xff
         else:
@@ -303,7 +303,7 @@ class RAM(Peripheral):
             self.values[(address-self.startaddress & 0xfffe)+1] = (value>>8) & 0xff
 
     def get(self, address, bytemode=0):
-        """write value to address"""
+        """read from address"""
         if bytemode:
             value = self.values[address-self.startaddress]
         else:
@@ -326,13 +326,13 @@ class ExtendedPorts(Peripheral):
             0x28: 0, 0x29: 0, 0x2a: 0, 0x2b: 0, 0x2c: 0, 0x2d: 0, 0x2e: 0}
 
     def set(self, address, value, bytemode=0):
-        """read from address"""
+        """write value to address"""
         if not bytemode and self.log:
             self.log.write('PERIPH: Access Error - expected byte but got word access\n')
         self.values[address] = value & 0xff
 
     def get(self, address, bytemode=0):
-        """write value to address"""
+        """read from address"""
         if not bytemode and self.log:
             self.log.write('PERIPH: Access Error - expected byte but got word access\n')
         return self.values[address]
@@ -428,7 +428,7 @@ class Memory(Subject):
                 self.memory[address+1] = (value>>8) & 0xff
 
     def set(self, address, value, bytemode=0):
-        """read from address"""
+        """write value to address"""
         if self.log: self.log.write('MEMORY: write 0x%04x <- 0x%04x mode:%s\n' % (address, value, bytemode and 'b' or 'w'))
         if self.setwatches.has_key(address): self.setwatches[address](address, bytemode, self.memory[address], value)  #call watch
         for a in self.accesswatches: a(self, bytemode, 1, address)
@@ -449,7 +449,7 @@ class Memory(Subject):
         return value
 
     def get(self, address, bytemode=0):
-        """write value to address"""
+        """read value from address"""
         if self.getwatches.has_key(address): self.getwatches[address](address, bytemode, self.memory[address], None)  #call watch
         for a in self.accesswatches: a(self, bytemode, 0, address)
         value = self._get(address, bytemode)
