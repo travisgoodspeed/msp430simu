@@ -10,7 +10,7 @@ class Observer:
     """base class for views in the Observer Pattern"""
     def update(self, subject, *args, **kwargs):
         """Implement this method in a concrete observer."""
-        raise "not implemented"
+        raise NotImplementedError
 
 class Subject:
     """base class for a model in the Observer Pattern."""
@@ -220,8 +220,125 @@ class CG2(Register):
 ##################################################################
 ## Main Memory
 ##################################################################
+class Peripheral:
+    color = (0x33, 0x33, 0x33)      #color for graphical representation
+    def __init__(self, log):
+        self.log = log
+        self.reset()        #init device
+
+    def __contains__(self, address):
+        """return true if address is handled by this peripheral"""
+        raise NotImplementedError
+
+    def reset(self):
+        """perform a power up reset"""
+        raise NotImplementedError
+
+    def set(self, address, value, bytemode=0):
+        """read from address"""
+        raise NotImplementedError
+
+    def get(self, address, bytemode=0):
+        """write value to address"""
+        raise NotImplementedError
+
+class Flash(Peripheral):
+    """flash memory"""
+    color = (0xff, 0xaa, 0x88)      #color for graphical representation
+
+    def __init__(self, log, startaddress = 0xf000, endaddress = 0xffff):
+        self.startaddress = startaddress
+        self.endaddress = endaddress
+        Peripheral.__init__(self, log)
+    
+    def __contains__(self, address):
+        """return true if address is handled by this peripheral"""
+        return self.startaddress <= address <= self.endaddress
+
+    def reset(self):
+        """perform a power up reset"""
+        self.values = [0] * (self.endaddress - self.startaddress + 1)
+
+    def set(self, address, value, bytemode=0):
+        """read from address"""
+        if bytemode:
+            self.values[address-self.startaddress] = value & 0xff
+        else:
+            self.values[address-self.startaddress  ] =  value     & 0xff
+            self.values[address-self.startaddress+1] = (value>>8) & 0xff
+
+    def get(self, address, bytemode=0):
+        """write value to address"""
+        if bytemode:
+            value = self.values[address-self.startaddress]
+        else:
+            value = (self.values[address-self.startaddress+1]<<8) |\
+                     self.values[address-self.startaddress]
+        return value
+
+class RAM(Peripheral):
+    """flash memory"""
+    color = (0xaa, 0xff, 0x88)      #color for graphical representation
+
+    def __init__(self, log, startaddress = 0x0200, endaddress = 0x02ff):
+        self.startaddress = startaddress
+        self.endaddress = endaddress
+        Peripheral.__init__(self, log)
+    
+    def __contains__(self, address):
+        """return true if address is handled by this peripheral"""
+        return self.startaddress <= address <= self.endaddress
+
+    def reset(self):
+        """perform a power up reset"""
+        self.values = [0] * (self.endaddress - self.startaddress + 1)
+
+    def set(self, address, value, bytemode=0):
+        """read from address"""
+        if bytemode:
+            self.values[address-self.startaddress] = value & 0xff
+        else:
+            self.values[address-self.startaddress  ] =  value     & 0xff
+            self.values[address-self.startaddress+1] = (value>>8) & 0xff
+
+    def get(self, address, bytemode=0):
+        """write value to address"""
+        if bytemode:
+            value = self.values[address-self.startaddress]
+        else:
+            value = (self.values[address-self.startaddress+1]<<8) |\
+                     self.values[address-self.startaddress]
+        return value
+
+class ExtendedPorts(Peripheral):
+    """class for port 1 and 2"""
+    color = (0xaa, 0x88, 0xff)      #color for graphical representation
+
+    def __contains__(self, address):
+        """return true if address is handled by this peripheral"""
+        return self.values.has_key(address)
+
+    def reset(self):
+        """perform a power up reset"""
+        self.values = {
+            0x20: 0, 0x21: 0, 0x22: 0, 0x23: 0, 0x24: 0, 0x25: 0, 0x26: 0,
+            0x28: 0, 0x29: 0, 0x2a: 0, 0x2b: 0, 0x2c: 0, 0x2d: 0, 0x2e: 0}
+
+    def set(self, address, value, bytemode=0):
+        """read from address"""
+        if not bytemode and self.log:
+            self.log.write('PERIPH: Access Error - expected byte but got word access\n')
+        self.values[address] = value & 0xff
+
+    def get(self, address, bytemode=0):
+        """write value to address"""
+        if not bytemode and self.log:
+            self.log.write('PERIPH: Access Error - expected byte but got word access\n')
+        return self.values[address]
 
 class Memory(Subject):
+#    color = (0xaa, 0xaa, 0xaa)      #color for graphical representation
+    color = (0xff, 0xff, 0xff)      #color for graphical representation
     def __init__(self, log=None):
         Subject.__init__(self)          #init model for observer pattern
         self.log = log
@@ -229,6 +346,22 @@ class Memory(Subject):
         self.getwatches = {}        #serached on writes
         self.accesswatches = []     #searched allways
         self.clear()                #init memory
+        self.peripherals = []
+
+    def append(self, peripheral):
+        self.peripherals.append(peripheral)
+
+    def __getitem__(self, address):
+        for p in self.peripherals:
+            if address in p:
+                return p
+        return self
+
+    def reset(self):
+        """perform a power up reset"""
+        for p in self.peripherals: p.reset()
+        self.clear()
+        self.notify()
 
     def clear(self):
         self.memory = [0]*65536
@@ -248,34 +381,54 @@ class Memory(Subject):
             for i in range(count):
                 value = int(l[9+i*2:11+i*2],16)
                 #print "%04x: %02x" % (address+i,value)
-                self.memory[address+i] = value
+                self._set(address+i, value, bytemode=1)
         self.notify()
+
+    def _set(self, address, value, bytemode=0):
+        """quiet set without logging"""
+        for p in self.peripherals:
+            if address in p:
+                p.set(address, value, bytemode)
+                break
+        else:
+            if bytemode:
+                self.memory[address] = value & 0xff
+            else:
+                self.memory[address  ] =  value     & 0xff
+                self.memory[address+1] = (value>>8) & 0xff
 
     def set(self, address, value, bytemode=0):
         """read from address"""
         if self.log: self.log.write('MEMORY: write 0x%04x <- 0x%04x mode:%s\n' % (address, value, bytemode and 'b' or 'w'))
         if self.setwatches.has_key(address): self.setwatches[address](address, bytemode, self.memory[address], value)  #call watch
         for a in self.accesswatches: a(self, bytemode, 1, address)
-        if bytemode:
-            self.memory[address] = value & 0xff
-        else:
-            self.memory[address  ] =  value     & 0xff
-            self.memory[address+1] = (value>>8) & 0xff
+        self._set(address, value, bytemode)
         self.notify(address, bytemode)
+
+    def _get(self, address, bytemode=0):
+        """quiet get without logging"""
+        for p in self.peripherals:
+            if address in p:
+                value = p.get(address, bytemode)
+                break
+        else:
+            if bytemode:
+                value = self.memory[address]
+            else:
+                value = (self.memory[address+1]<<8) | self.memory[address]
+        return value
 
     def get(self, address, bytemode=0):
         """write value to address"""
         if self.getwatches.has_key(address): self.getwatches[address](address, bytemode, self.memory[address], None)  #call watch
         for a in self.accesswatches: a(self, bytemode, 0, address)
-        if bytemode:
-            value = self.memory[address]
-        else:
-            value = (self.memory[address+1]<<8) | self.memory[address]
+        value = self._get(address, bytemode)
         if self.log: self.log.write('MEMORY: read  0x%04x -> 0x%04x mode:%s\n' % (address, value, bytemode and 'b' or 'w'))
         return value
 
     def hexline(self, address, width=16):
-        bytes = self.memory[address:address+width]
+        """build a tuple with (address, hex values, ascii values)"""
+        bytes = [self._get(a, bytemode=1) for a in range(address, address+width)]
         return  (
             '0x%04x' % address, '%s%s' % (
                 ('%02x '*len(bytes)) % tuple(bytes),

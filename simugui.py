@@ -109,6 +109,8 @@ class MemView(wxListCtrl):
         EVT_LIST_ITEM_SELECTED(self, self.GetId(), self.OnItemSelected)
         EVT_LIST_ITEM_ACTIVATED(self, self.GetId(), self.OnItemActivated)
 
+        self.attrcache = {}
+
     def OnItemSelected(self, event):
         self.currentItem = event.m_itemIndex
 
@@ -124,7 +126,7 @@ class MemView(wxListCtrl):
     # "virtualness" of the list...
     def OnGetItemText(self, item, col):
         if self.core:
-            return self.core.memory.hexline(item<<4)[col]
+            return self.core.memory.hexline(item<<4)[col]   #very inefficient here!
         else:
             return ''
         #return "Item %d, column %d" % (item, col)
@@ -133,7 +135,14 @@ class MemView(wxListCtrl):
         return 0
 
     def OnGetItemAttr(self, item):
-        return self.attr1
+        #attr = self.attr1
+        attr = self.attrcache.get(item, None)
+        if not attr:
+            attr = wxListItemAttr()
+            attr.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
+            attr.SetBackgroundColour('#%02x%02x%02x' % self.core.memory[item<<4].color)
+            self.attrcache[item] = attr
+        return attr
 
 
 ##################################################################
@@ -157,7 +166,7 @@ class MemoryFrame(wxFrame, core.Observer):
         menu.Append(self.M_EXIT, "Close")
         EVT_MENU(self, self.M_EXIT, self.OnMenuClose)
         menuBar = wxMenuBar()
-        menuBar.Append(menu, "&File");
+        menuBar.Append(menu, "&Window");
         self.SetMenuBar(menuBar)
         
         #setup toolbar
@@ -239,7 +248,7 @@ class DisFrame(wxFrame, core.Observer):
         menu.Append(self.M_EXIT, "Close")
         EVT_MENU(self, self.M_EXIT, self.OnMenuClose)
         menuBar = wxMenuBar()
-        menuBar.Append(menu, "&File");
+        menuBar.Append(menu, "&Window");
         self.SetMenuBar(menuBar)
         
         #setup toolbar
@@ -376,7 +385,13 @@ class CoreFrame(wxFrame, core.Observer):
 ##            wxFont(8, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
 
         #create cpu core
+        ##TODO: isolate this    ##$$$$$$$
         self.core = core.Core(self)
+        self.core.memory.append(core.ExtendedPorts(self.log))
+        self.core.memory.append(core.Flash(self.log))
+        self.core.memory.append(core.RAM(self.log))
+
+        
         self.core.attach(self)     #register as observer
         self.dis.core = self.core
 
