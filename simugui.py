@@ -118,40 +118,59 @@ class MemTable(wxPyGridTableBase):
     def __init__(self, core = None):
         wxPyGridTableBase.__init__(self)
         self.core = core
-        self.discache = []
+        self.attr = wxGridCellAttr()
+        self.attr.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
         self.attrcache = {}
 
     def GetNumberRows(self):
         return 0xfff
 
     def GetNumberCols(self):
-        return 3#18
+        return 18#3#18
 
     def IsEmptyCell(self, row, col):
         return false
 
     def GetValue(self, row, col):
         if self.core:
-            return self.core.memory.hexline(row<<4)[col]   #very inefficient here!
+            if col==0:
+                return "0x%04x" % (row * 0xf)
+            elif col == 17: #ASCII view
+                address = row<<4
+                bytes = [self.core.memory._get(a, bytemode=1) for a in range(address, address+16)]
+                return ('%c'*len(bytes)) % tuple(map(lambda x: x>32 and x or ord('.'), bytes)) #ascii
+            else:
+                return "%02x" % self.core.memory._get( (row<<4) + col, bytemode=1)
+                #return self.core.memory.hexline(row<<4)[col]   #very inefficient here!
         else:
             return ''
 
     def SetValue(self, row, col, value):
-        #self.core.memory.set(row*16+col, value, bytemode=1)
-        pass    #SetValue is ignored
+        """hex values are editable, others not"""
+        if self.core:
+            if col > 0 and col < 17:
+                try:
+                    val = int(value, 16)
+                except ValueError:
+                    pass
+                else:
+                    self.core.memory._set( (row<<4) + col, val, bytemode=1)
 
     def CanHaveAttributes(self):
+        """allow font and color changes"""
         return true
     
     def GetAttr(self, row, col, huh):
         #attr = self.attr1
-        attr = self.attrcache.get(row, None)
-        if not attr:
-            attr = wxGridCellAttr()
-            attr.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
-            attr.SetBackgroundColour('#%02x%02x%02x' % self.core.memory[row<<4].color)
-            self.attrcache[row] = attr
-        return attr.Clone()
+        if col > 0 and col < 17:
+            attr = self.attrcache.get(row, None)
+            if not attr:
+                attr = wxGridCellAttr()
+                attr.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
+                attr.SetBackgroundColour('#%02x%02x%02x' % self.core.memory[row<<4].color)
+                self.attrcache[row] = attr
+            return attr.Clone()
+        return self.attr.Clone()
 
 #class MemView(wxListCtrl):
 class MemView(wxGrid):
@@ -183,9 +202,12 @@ class MemView(wxGrid):
         #self.AutoSizeColumns()
         self.SetRowLabelSize(0)
         self.SetColLabelSize(0)
-        self.SetColSize(1,400)
-        self.SetColSize(2,160)
-
+        #self.SetColSize(1,400)
+        #self.SetColSize(2,160)
+        for i in range(16):
+            self.SetColSize(1+i,26)
+        self.SetColSize(17,160)
+        
     def OnItemSelected(self, event):
         self.currentItem = event.m_itemIndex
 
