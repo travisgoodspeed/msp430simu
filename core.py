@@ -264,16 +264,17 @@ class Flash(Peripheral):
         if bytemode:
             self.values[address-self.startaddress] = value & 0xff
         else:
-            self.values[address-self.startaddress  ] =  value     & 0xff
-            self.values[address-self.startaddress+1] = (value>>8) & 0xff
+            self.values[(address-self.startaddress & 0xfffe)  ] =  value     & 0xff
+            self.values[(address-self.startaddress & 0xfffe)+1] = (value>>8) & 0xff
 
     def get(self, address, bytemode=0):
         """write value to address"""
         if bytemode:
             value = self.values[address-self.startaddress]
         else:
-            value = (self.values[address-self.startaddress+1]<<8) |\
-                     self.values[address-self.startaddress]
+            #word reads are allways on even addresses...
+            value = (self.values[(address-self.startaddress & 0xfffe)+1]<<8) |\
+                     self.values[(address-self.startaddress & 0xfffe)]
         return value
 
 class RAM(Peripheral):
@@ -298,16 +299,16 @@ class RAM(Peripheral):
         if bytemode:
             self.values[address-self.startaddress] = value & 0xff
         else:
-            self.values[address-self.startaddress  ] =  value     & 0xff
-            self.values[address-self.startaddress+1] = (value>>8) & 0xff
+            self.values[(address-self.startaddress & 0xfffe)  ] =  value     & 0xff
+            self.values[(address-self.startaddress & 0xfffe)+1] = (value>>8) & 0xff
 
     def get(self, address, bytemode=0):
         """write value to address"""
         if bytemode:
             value = self.values[address-self.startaddress]
         else:
-            value = (self.values[address-self.startaddress+1]<<8) |\
-                     self.values[address-self.startaddress]
+            value = (self.values[(address-self.startaddress & 0xfffe)+1]<<8) |\
+                     self.values[(address-self.startaddress & 0xfffe)]
         return value
 
 class ExtendedPorts(Peripheral):
@@ -345,8 +346,8 @@ class Memory(Subject):
         self.setwatches = {}        #serached on reads
         self.getwatches = {}        #serached on writes
         self.accesswatches = []     #searched allways
-        self.clear()                #init memory
         self.peripherals = []
+        self.reset()                #init memory
 
     def append(self, peripheral):
         self.peripherals.append(peripheral)
@@ -364,9 +365,16 @@ class Memory(Subject):
         self.notify()
 
     def load(self, filename):
-        """load ihex file into memory"""
+        "fill memory with the contents of a file. file type is determined from extension"
         if self.log: self.log.write('MEMORY: loading file %s\n' % filename)
-        for l in open(filename).readlines():
+        if filename[-4:].lower() == '.txt':
+            self.loadTIText(open(filename, "r"))
+        else:
+            self.loadIHex(open(filename, "r"))
+
+    def loadIHex(self, file):
+        "load data from a (opened) file in Intel-HEX format"
+        for l in file.readlines():
             if l[0] != ':':
                 raise "file format error"
             count    = int(l[1:3],16)
@@ -383,6 +391,28 @@ class Memory(Subject):
             else:
                 sys.stderr.write("Ignored unknown field (type 0x%02x) in ihex file.\n" % code)
         self.notify()
+
+    def loadTIText(self, file):
+        "load data from a (opened) file in TI-Text format"
+        next        = 1
+        currentAddr = 0
+        startAddr   = 0
+        segmentdata = []
+        #Convert data for MSP430, TXT-File is parsed line by line
+        while next >= 1:
+            #Read one line
+            l = file.readline()
+            if not l: break #EOF
+            l = l.strip()
+            if l[0] == 'q': break
+            elif l[0] == '@':        #if @ => new address => send frame and set new addr.
+                address = int(l[1:],16)
+            else:
+                for i in l.split():
+                    value = int(i,16)
+                    self._set(address, value, bytemode=1)
+                    address += 1
+
 
     def _set(self, address, value, bytemode=0):
         """quiet set without logging"""

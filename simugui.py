@@ -451,7 +451,13 @@ class CoreFrame(wxFrame, core.Observer):
         self.Refresh()
         
     def OnMenuOpen(self, event=None):
-        dlg = wxFileDialog(self, "Choose a ihex file", ".", "", "*.a43", wxOPEN)
+        dlg = wxFileDialog(self,
+                "Choose a ihex file",
+                ".",
+                "",
+                "Intel HEX (*.a43)|*.a43|TI Text(*.txt)|*.txt",
+                wxOPEN
+        )
         dlg.SetDirectory(self.lastpath)
         if dlg.ShowModal() == wxID_OK:
             self.lastpath = dlg.GetDirectory()
