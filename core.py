@@ -1022,7 +1022,7 @@ class Core(Subject):
         if execfu:
             apply(execfu, [self]+args)
         else:
-            self.log.write("Illegal instruction 0x%04x @%r" % (opcode, address))
+            self.log.write("#CORE#: %s\n" % (name))
         self.notify()
         return note
 
