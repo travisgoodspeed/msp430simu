@@ -9,7 +9,8 @@ import core
 ## view for disassebled memory
 ##################################################################
 class DisView(wxListCtrl):
-    def __init__(self, parent):
+    def __init__(self, parent, core = None):
+        self.core = core
         wxListCtrl.__init__(self, parent, -1, size=(420,250),
                  style=wxLC_REPORT|wxLC_VIRTUAL|wxLC_HRULES|wxLC_VRULES)
         self.InsertColumn(0, "Address")
@@ -19,7 +20,7 @@ class DisView(wxListCtrl):
         self.SetColumnWidth(1, 300)
         self.SetColumnWidth(2, 40)
 
-        self.SetItemCount(0xffff)
+        self.SetItemCount(0)
 
         self.attr1 = wxListItemAttr()
         self.attr1.SetFont(wxFont(10, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
@@ -48,7 +49,7 @@ class DisView(wxListCtrl):
     # "virtualness" of the list...
     def OnGetItemText(self, item, col):
         try:
-            return str(self.discache[item][col])
+            return str(self.discache[item][1+col])
         except IndexError:
             return ''
         #return "Item %d, column %d" % (item, col)
@@ -57,16 +58,18 @@ class DisView(wxListCtrl):
         return 0
 
     def OnGetItemAttr(self, item):
-        if item == 0:
-            return self.attr2
-        else:
-            return self.attr1
+        try:
+            if self.discache[item][0] == int(self.core.PC):
+                return self.attr2
+        except IndexError:
+            pass
+        return self.attr1
 
-    def disasseble(self, address, lines = 20):
+    def disasseble(self, address, lines = 0):
         self.discache = []
         linelist = []
         pc = core.PC(self.core, address)
-        while len(linelist) < lines:
+        while lines and len(linelist) < lines or not lines:
             adr = int(pc)
             name, args, execfu, cycles = self.core.disassemble(pc)
             note = "%-6s %s" % (
@@ -74,7 +77,10 @@ class DisView(wxListCtrl):
                 ', '.join(map(str,args[1:]))
             )
             linelist.append( "0x%04x: %s" % (adr, note) )
-            self.discache.append( ('0x%04x' % adr, note, cycles) )
+            self.discache.append( (adr, '0x%04x' % adr, note, cycles) )
+            if execfu is None and not lines:
+                break
+        self.SetItemCount(len(self.discache))
         self.Refresh()
         #self.dis.SetValue('\n'.join(linelist))
 
@@ -140,8 +146,6 @@ class MemoryFrame(wxFrame, core.Observer):
     
     M_EXIT      = 21
 
-    SCR_MEM     = 30
-    
     def __init__(self, parent, id, core):
         """init the window."""
         # First, call the base class' __init__ method to create the frame
@@ -215,6 +219,89 @@ class MemoryFrame(wxFrame, core.Observer):
         self.Hide()
 
 ##################################################################
+## disassembling viewer
+##################################################################
+class DisFrame(wxFrame, core.Observer):
+    #ids for buttons
+    TB_ADDRESS  = 2
+    TB_GO       = 3
+    
+    M_EXIT      = 21
+
+    def __init__(self, parent, id, core):
+        """init the window."""
+        # First, call the base class' __init__ method to create the frame
+        wxFrame.__init__(self, parent, id, "Disassembler - MSP 430 Simulator", wxDefaultPosition, wxDefaultSize)
+        self.core = core
+        core.attach(self)       #register for updates
+        #menu
+        menu = wxMenu()
+        menu.Append(self.M_EXIT, "Close")
+        EVT_MENU(self, self.M_EXIT, self.OnMenuClose)
+        menuBar = wxMenuBar()
+        menuBar.Append(menu, "&File");
+        self.SetMenuBar(menuBar)
+        
+        #setup toolbar
+        tb = self.tb = self.CreateToolBar(wxTB_HORIZONTAL|wxNO_BORDER|wxTB_FLAT)
+        #a text field for a multiple steps
+        self.address = wxTextCtrl(tb, self.TB_ADDRESS, "0")
+        tb.AddControl(self.address)
+        #a button for a multiple steps
+        tb.AddControl(wxButton(tb, self.TB_GO, "Show"))
+        EVT_BUTTON(self, self.TB_GO, self.OnGoClick)
+        #sep----
+        tb.AddSeparator()
+        #create toolbar
+        tb.Realize()
+        # create a statusbar some game info
+        
+        #displays
+        self.dis = DisView(self, core)
+        
+        #init a sizer for the window layout
+        self.box = wxBoxSizer(wxVERTICAL)
+        self.box.Add(self.dis, 1, wxEXPAND)
+        self.box.Fit(self)                   #layout window
+        #setup handler for window resize
+        self.SetSizer(self.box)
+        self.SetAutoLayout(1)
+        EVT_CLOSE(self, self.OnCloseWindow)  #register window close handler
+        EVT_SIZE(self, self.OnSizeWindow)
+        EVT_TEXT_ENTER(self, self.TB_ADDRESS, self.OnGoClick)   #same as go button
+        
+        self.fastupdate = 0
+        #self.update()       #init displays
+
+    #observer pattern
+    def update(self, *args):
+        """process messages from the model."""
+        if not self.fastupdate:
+            #update , mark PC
+            self.dis.Refresh()
+
+    def OnMenuClose(self, event=None):
+        self.Hide()
+
+    def OnGoClick(self, event=None):
+        s = self.address.GetValue()
+        if s[0:2] == '0x':
+            address = int(s,16)
+        else:
+            address = int(s)
+        self.dis.disasseble(address)
+        #self.mem.EnsureVisible(address/16)
+        
+    def OnSizeWindow(self, event=None):
+        self.update()       #init displays
+        if event is not None: event.Skip()
+
+    # This method is called when the CLOSE event is
+    # sent to this window
+    def OnCloseWindow(self, event):
+        self.Hide()
+
+##################################################################
 ## main view of cpu core
 ##################################################################
 class CoreFrame(wxFrame, core.Observer):
@@ -227,6 +314,7 @@ class CoreFrame(wxFrame, core.Observer):
     M_OPEN      = 23
     M_NEW       = 24
     M_MEM       = 25
+    M_DIS       = 26
     
     def __init__(self, parent, id):
         """init the window."""
@@ -243,7 +331,9 @@ class CoreFrame(wxFrame, core.Observer):
 
         viewmenu = wxMenu()
         viewmenu.Append(self.M_MEM, "Memory")
+        viewmenu.Append(self.M_DIS, "Disassembler")
         EVT_MENU(self, self.M_MEM, self.OnMenuMem)
+        EVT_MENU(self, self.M_DIS, self.OnMenuDis)
 
         menuBar = wxMenuBar()
         menuBar.Append(filemenu, "&File");
@@ -310,6 +400,7 @@ class CoreFrame(wxFrame, core.Observer):
         EVT_SIZE(self, self.OnSizeWindow)
 
         self.mem = None
+        self.disframe = None
 
         self.loglines = []
         self.fastupdate = 0
@@ -325,7 +416,7 @@ class CoreFrame(wxFrame, core.Observer):
             for r in self.core.R:
                 regs += '%r\n' % r
             self.registers.SetValue(regs)
-            self.dis.disasseble(self.core.PC.get())
+            self.dis.disasseble(self.core.PC.get(), lines = 20) #update lockahead
             #update text in statusbar
             self.SetStatusText('%r' % (args,), 0)
             self.log.SetValue(''.join(self.loglines))
@@ -360,6 +451,12 @@ class CoreFrame(wxFrame, core.Observer):
             self.mem = MemoryFrame(self, -1, self.core)
         self.mem.Show()
         self.mem.SetFocus()
+
+    def OnMenuDis(self, event=None):
+        if self.disframe is None:
+            self.disframe = DisFrame(self, -1, self.core)
+        self.disframe.Show()
+        self.disframe.SetFocus()
 
     #def tick(self):
     #    """show elapsed time in the right side of the statusbar."""
