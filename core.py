@@ -416,6 +416,7 @@ class Multiplier(Peripheral):
         elif address == 0x13a:  value = self.acc
         elif address == 0x13c:  value = self.acc >> 16
         elif address == 0x13e:  value = self.sumext
+        else: value = 0
         return value & (bytemode and 0xff or 0xffff)
 
 class ExtendedPorts(Peripheral):
@@ -887,16 +888,17 @@ class Core(Subject):
 
     def execSUBC(self, bytemode, src, dst, takecarry = 1, store = 1):
         b = (bytemode and 0x80 or 0x8000)
+        m = (bytemode and 0xff or 0xffff)
         d = dst.get()
         s = src.get()
         if takecarry:
             c = self.SR.C
         else:
             c = 1
-        r = d + ((~s) & (bytemode and 0xff or 0xffff)) + c
-        self.SR.Z = r & (bytemode and 0xff or 0xffff) == 0
-        self.SR.N = r & (bytemode and 0x80 or 0x8000)
-        self.SR.C = r < 0 or r > (bytemode and 0xff or 0xffff)
+        r = d + ((~s) & m) + c
+        self.SR.Z = r & m == 0
+        self.SR.N = r & b
+        self.SR.C = r < 0 or r > m
         self.SR.V = (not (r & b) and not (s & b) and (d & b)) or ((r & b) and (s & b) and not (d & b))
         if store: dst.set(r)
 
