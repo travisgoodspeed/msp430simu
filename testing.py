@@ -3,6 +3,19 @@
 #special test peripheral and io for MSP430-GCC (mspgcc) tests
 #(C)2002 Chris Liechti <cliechti@gmx.net>
 
+#you can call this script with many filenames. for each file a new
+#msp430 is created and the file is executed.
+#all failures are summed up and a total is printed at the end
+#(the exit code is nonzero if there is any failure)
+
+#a test program must write to the "sfrb CMD" within 2000 program steps
+#otherwise its aborted and a message is printed for that file.close
+#the tests must then end in an other write to CMD, otherwise the simu
+#would run forever.
+
+#please look at the example_tests.c and testing.h for more details on
+#how to write tests
+
 import sys, core
 
 #CMD codes:
@@ -64,7 +77,7 @@ class TestCore(core.Core):
         self.memory.append(self.testing)    #insert new peripherals in MSP's address pace
         #self.reset()
 
-    def start(self, maxsteps=1000):
+    def start(self, maxsteps=2000):
         self.log.write( 'TSTCOR: set startaddress\n')
         self.PC.set(self.memory.get(0xfffe))
         self.log.write( 'TSTCOR: *** starting trace (maxsteps=%d)\n' % (maxsteps))
@@ -92,7 +105,7 @@ if __name__ == '__main__':
         msp.memory.load(f)
         msp.start()
         failures += msp.testing.failures
-    print "-"*60
+        print "---------- Total Cycles: %d -----------" % msp.cycles
     if failures:
         print "%d failures" % failures
         sys.exit(1)

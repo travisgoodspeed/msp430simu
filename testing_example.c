@@ -3,6 +3,17 @@ This source shows an example on how to use the testing peripheral in the
 simulator.
 
 (C) 2002 cliechti@gmx.net
+
+
+The tests below are in separate functions to simplyfy reading the
+assembler output of GCC and disassembled objects.
+the macros come from testing.h, look there for comments about them.
+
+when you write tests, keep in mind that that gcc optimization and
+precompiler might optimize code. (e.g. constants are recognized,
+unused values are not stored even if the c code would imply it)
+use variables to avoid that the precompiler inserts the result
+instead of getting real msp430 code etc.
 */
 
 #include <io.h>
@@ -16,13 +27,13 @@ long lx, ly;
 unsigned long ulx, uly;
 
 void subt1(void) {    
-    SUBTEST("Subtest 1\n");       //Begin with a new test
+    SUBTEST("Example Subtest\n");       //Begin with a new test
     //set up test inputs
     a = '0';
     b = 'A';
     //perform the calculation to be tested
     r = (a << 8) | b;
-    CHECK("leftshift:", r == 0x3041);
+    CHECK("leftshift:\t", r == 0x3041);
 }
 
 void booltest(void) {
@@ -41,6 +52,12 @@ void booltest(void) {
     CHECK("!r == 0:\t", !r == 0);
 }
 
+void slongmul(void) {
+    SUBTEST("signed long multiplication\n");       //Begin with a new test
+    lx = -1L; ly = 0x1000L; CHECK("-1*0x1000:\t", (lx*ly) == -0x1000L );
+    lx = -10L; ly = 0x1000L; CHECK("-10*0x1000:\t", (lx*ly) == -(10*0x1000L) );
+}
+
 void sintdiv(void) {
     SUBTEST("int division\n");       //Begin with a new test
     ix = 10;  iy = -2;  CHECK("pos/neg:\t", (ix/iy) == -5 );
@@ -52,12 +69,17 @@ void sintdiv(void) {
 
 void slongdiv(void) {
     SUBTEST("signed long division\n");       //Begin with a new test
-    lx = 10L; ly = -2L; CHECK("pos/neg:\t", (lx/ly) == -5 );
-    lx = -10L;ly = 2L;  CHECK("neg/pos:\t", (lx/ly) == -5 );
-    lx = 10L; ly = 2L;  CHECK("pos/pos:\t", (lx/ly) == 5 );
-    lx = -10L;ly = -2L; CHECK("neg/neg:\t", (lx/ly) == 5 );
-    //workaround test
-    lx = -10L;ly = -2L; CHECK("(us) -neg/-neg:\t", ((unsigned long)(-lx)/(unsigned long)(-ly)) == 5 );
+    lx = 10L; ly = -2L; CHECK("10/-2:\t\t\t", (lx/ly) == -5 );
+    lx = 0x10000000L; ly = -0x100L; CHECK("0x10000000L/-0x100L:\t", (lx/ly) == -0x100000L );
+
+    lx = -10L;ly = 2L;  CHECK("-10/2:\t\t\t", (lx/ly) == -5 );
+    lx = -0x10000000L; ly = 0x100L; CHECK("-0x10000000L/0x100L:\t", (lx/ly) == -0x100000L );
+
+    lx = 10L; ly = 2L;  CHECK("10/2:\t\t\t", (lx/ly) == 5 );
+    lx = 0x10000000L; ly = 0x100L; CHECK("0x10000000L/0x100L:\t", (lx/ly) == 0x100000L );
+
+    lx = -10L;ly = -2L; CHECK("-10/-2:\t\t\t", (lx/ly) == 5 );
+    lx = -0x10000000L; ly = -0x100L; CHECK("-0x10000000L/-0x100L:\t", (lx/ly) == 0x100000L );
 }
 
 void ulongdiv(void) {
@@ -171,6 +193,7 @@ int main() {
     TEST("Example tests for mspgcc\n");    //all test files MUST start with that one
     
     subt1();
+    slongmul();
     sintdiv();
     slongdiv();
     ulongdiv();
