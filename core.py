@@ -546,10 +546,10 @@ class Core(Subject):
     def execSXT(self, bytemode, arg):
         if bytemode: raise "illegal use of SXT" #should actualy never happen
         a = arg.get()
-        sign = not not (x & 0x80)
+        sign = not not (a & 0x80)
         r = a
         for i in range(8,15):
-            r |= sign<<i
+            r |= sign << i
         self.SR.Z = (r == 0)
         self.SR.N = r & (bytemode and 0x80 or 0x8000)
         self.SR.C = (a & 1)
@@ -818,12 +818,11 @@ class Core(Subject):
             if offset & 0x400:  #negative?
                 offset = -((~offset + 1) & 0x7ff)
             cycles += addcyles #jumps allways have 2 cycles
-            return name, [0, JumpTarget(self, int(self.PC), offset)], fu, cycles
+            return name, [0, JumpTarget(self, int(pc), offset)], fu, cycles
 
         #unkown instruction
         else:
             return 'illegal insn 0x%04x' % opcode, [0], None, cycles
-            #raise "Illegal instruction 0x%04x %r" % (opcode, self.PC, ) #TODO: log
 
     def step(self):
         """perform one single step"""
@@ -836,8 +835,11 @@ class Core(Subject):
             ', '.join(map(str,args[1:])),
             cycles
         )
-        self.log.write( '#CORE#: %s\n' % (note))
-        if execfu: apply(execfu, [self]+args)
+        self.log.write('#CORE#: %s\n' % (note))
+        if execfu:
+            apply(execfu, [self]+args)
+        else:
+            self.log.write("Illegal instruction 0x%04x @%r" % (opcode, address))
         self.notify()
         return note
 
