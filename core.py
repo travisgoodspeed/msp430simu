@@ -377,11 +377,15 @@ class Memory(Subject):
             address  = int(l[3:7],16)
             code     = int(l[7:9],16)
             checksum = int(l[-2:],16)
-            #print l[11:].strip()
-            for i in range(count):
-                value = int(l[9+i*2:11+i*2],16)
-                #print "%04x: %02x" % (address+i,value)
-                self._set(address+i, value, bytemode=1)
+
+            if code == 0x00:
+                for i in range(count):
+                    value = int(l[9+i*2:11+i*2],16)
+                    self._set(address+i, value, bytemode=1)
+            elif code in [0x01, 0x02, 0x03]:
+                pass        #known types but not useful?!?
+            else:
+                sys.stderr.write("Ignored unknown field (type 0x%02x) in ihex file.\n" % code)
         self.notify()
 
     def _set(self, address, value, bytemode=0):

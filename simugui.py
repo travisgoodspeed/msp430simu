@@ -419,6 +419,7 @@ class CoreFrame(wxFrame, core.Observer):
 
         self.loglines = []
         self.fastupdate = 0
+        self.lastpath = '.'
         #self.update()       #init displays
         #self.OnScrollMem()  #init scollbar
         #self.disasseble(0)
@@ -451,8 +452,10 @@ class CoreFrame(wxFrame, core.Observer):
         
     def OnMenuOpen(self, event=None):
         dlg = wxFileDialog(self, "Choose a ihex file", ".", "", "*.a43", wxOPEN)
+        dlg.SetDirectory(self.lastpath)
         if dlg.ShowModal() == wxID_OK:
-            self.core.memory.load(dlg.GetPaths()[0])
+            self.lastpath = dlg.GetDirectory()
+            self.core.memory.load(dlg.GetPath())
             self.core.PC.set(self.core.memory.get(0xfffe)) ##DEBUG !!!!!!!!!!!
             self.update()
         dlg.Destroy()
