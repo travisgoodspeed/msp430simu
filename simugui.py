@@ -432,7 +432,6 @@ class CoreFrame(wxFrame, core.Observer):
     def OnMenuNew(self, event=None):
         self.core.clear()
         self.dis.Refresh()
-        self.mem.Refresh()
         self.Refresh()
         
     def OnMenuOpen(self, event=None):
