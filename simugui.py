@@ -390,7 +390,7 @@ class CoreFrame(wxFrame, core.Observer):
         self.core.memory.append(core.ExtendedPorts(self.log))
         self.core.memory.append(core.Flash(self.log))
         self.core.memory.append(core.RAM(self.log))
-
+        self.core.memory.append(core.Multiplier(self.log))
         
         self.core.attach(self)     #register as observer
         self.dis.core = self.core

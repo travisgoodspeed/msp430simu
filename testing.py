@@ -75,6 +75,7 @@ class TestCore(core.Core):
         core.Core.__init__(self, log)
         self.testing = Testing(log)
         self.memory.append(self.testing)    #insert new peripherals in MSP's address pace
+        self.memory.append(core.Multiplier(self.log))
         #self.reset()
 
     def start(self, maxsteps=2000):

@@ -311,6 +311,113 @@ class RAM(Peripheral):
                      self.values[(address-self.startaddress & 0xfffe)]
         return value
 
+class Multiplier(Peripheral):
+    """hardware mutiplier"""
+    #op1, op2 contain signed numbers
+    #acc is the 32 bit result, sumext the overflow register
+    #mpy,mpys,mac,mac are saved for later reads from that addresses
+    #mode is used to store the multiplication type
+
+    color = (0xee, 0xaa, 0xff)      #color for graphical representation
+
+    MUL, SIGNEDMUL, MULANDACCUM, SIGNEDMULANDACCUM = range(4)
+    
+    def __contains__(self, address):
+        """return true if address is handled by this peripheral"""
+        return 0x0130 <= address <= 0x013f
+
+    def reset(self):
+        """perform a power up reset"""
+        self.mode = 0
+        self.op1  = 0
+        self.op2  = 0
+        self.acc  = 0
+        self.sumext = 0
+        self.mpy  = 0
+        self.mpys = 0
+        self.mac  = 0
+        self.macs = 0
+
+    def _makesigned(self, value, bytemode):
+        if bytemode:
+            if value & 0x80:    #negative?
+                return -((~value + 1) & 0xff)
+            else:
+                return value & 0xff
+        else:
+            if value & 0x8000:    #negative?
+                return -((~value + 1) & 0xffff)
+            else:
+                return value & 0xffff
+
+    def set(self, address, value, bytemode=0):
+        """write value to address"""
+        if address == 0x130:    #MPY
+            self.mode = self.MUL
+            self.op1 = self.mpy = value
+        elif address == 0x132:    #MPYS
+            self.mode = self.SIGNEDMUL
+            self.mpys = value
+            self.op1 = self._makesigned(value, bytemode)
+        elif address == 0x134:    #MPYS
+            self.mode = self.MULANDACCUM
+            self.op1 = self.mac = value
+        elif address == 0x136:    #MPYS
+            self.mode = self.SIGNEDMULANDACCUM
+            self.op1 = self.macs = value
+            self.op1 = self._makesigned(value, bytemode)
+        elif address == 0x138:    #OP2
+            if self.mode == self.SIGNEDMUL or self.mode == self.SIGNEDMULANDACCUM:
+                self.op2 = self._makesigned(value, bytemode)
+            else:
+                self.op2 = value
+            #multiply...
+            r = abs(self.op1) * abs(self.op2)
+            if self.mode == self.MUL:
+                self.acc = r
+                self.sumext = 0
+            if self.mode == self.SIGNEDMUL:
+                if self.op1 < 0:    r = -r
+                if self.op2 < 0:    r = -r
+                self.acc = r
+                if (self.op1 < 0 and not self.op2 < 0) or (not self.op1 < 0 and self.op2 < 0):
+                    self.sumext = 0xffff
+                else:
+                    self.sumext = 0
+            if self.mode == self.MULANDACCUM:
+                self.acc += r
+                if self.acc > 0xffffffff:
+                    self.sumext = 0x0001
+                else:
+                    self.sumext = 0
+            if self.mode == self.SIGNEDMULANDACCUM:
+                if self.op1 < 0:    r = -r
+                if self.op2 < 0:    r = -r
+                self.acc += r
+                if self.acc > 0x7fffffff:
+                    self.sumext = 0xffff
+                else:
+                    self.sumext = 0
+            #TODO: broken!!
+        elif address == 0x13a:    #ResLo/acc
+            self.acc = (self.acc & 0xffff0000) | value
+        elif address == 0x13c:    #ResHi/acc
+            self.acc = (self.acc & 0x0000ffff) | (value<<16)
+        elif address == 0x13e:    #SumExt
+            pass #readonly  #TODO: log
+
+    def get(self, address, bytemode=0):
+        """read from address"""
+        if address == 0x130:    value = self.mpy
+        elif address == 0x132:  value = self.mpys
+        elif address == 0x134:  value = self.mac
+        elif address == 0x136:  value = self.macs
+        elif address == 0x138:  value = self.op2
+        elif address == 0x13a:  value = self.acc
+        elif address == 0x13c:  value = self.acc >> 16
+        elif address == 0x13e:  value = self.sumext
+        return value & (bytemode and 0xff or 0xffff)
+
 class ExtendedPorts(Peripheral):
     """class for port 1 and 2"""
     color = (0xaa, 0x88, 0xff)      #color for graphical representation
@@ -336,6 +443,7 @@ class ExtendedPorts(Peripheral):
         if not bytemode and self.log:
             self.log.write('PERIPH: Access Error - expected byte but got word access\n')
         return self.values[address]
+
 
 class Memory(Subject):
 #    color = (0xaa, 0xaa, 0xaa)      #color for graphical representation
