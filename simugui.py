@@ -10,12 +10,14 @@ import core
 ##################################################################
 class DisView(wxListCtrl):
     def __init__(self, parent):
-        wxListCtrl.__init__(self, parent, -1, size=(280,150),
+        wxListCtrl.__init__(self, parent, -1, size=(420,250),
                  style=wxLC_REPORT|wxLC_VIRTUAL|wxLC_HRULES|wxLC_VRULES)
-        self.InsertColumn(0, "Insn")
-        self.InsertColumn(1, "cycles")
-        self.SetColumnWidth(0, 240)
-        self.SetColumnWidth(1, 20)
+        self.InsertColumn(0, "Address")
+        self.InsertColumn(1, "Insn")
+        self.InsertColumn(2, "cycles")
+        self.SetColumnWidth(0, 60)
+        self.SetColumnWidth(1, 300)
+        self.SetColumnWidth(2, 40)
 
         self.SetItemCount(0xffff)
 
@@ -65,13 +67,14 @@ class DisView(wxListCtrl):
         linelist = []
         pc = core.PC(self.core, address)
         while len(linelist) < lines:
+            adr = int(pc)
             name, args, execfu, cycles = self.core.disassemble(pc)
             note = "%-6s %s" % (
                 '%s%s' % (name, ('','.b')[args[0]]),
                 ', '.join(map(str,args[1:]))
             )
-            linelist.append( "0x%04x: %s" % (pc, note) )
-            self.discache.append( (note, cycles) )
+            linelist.append( "0x%04x: %s" % (adr, note) )
+            self.discache.append( ('0x%04x' % adr, note, cycles) )
         self.Refresh()
         #self.dis.SetValue('\n'.join(linelist))
 
@@ -81,8 +84,9 @@ class DisView(wxListCtrl):
 #table lines represent 16 bytes -> 0x1000 lines for 65k memory
 
 class MemView(wxListCtrl):
-    def __init__(self, parent):
-        wxListCtrl.__init__(self, parent, -1, size=(630,150),
+    def __init__(self, parent, core=None):
+        self.core = core
+        wxListCtrl.__init__(self, parent, -1, size=(630,400),
                  style=wxLC_REPORT|wxLC_VIRTUAL|wxLC_HRULES|wxLC_VRULES)
         self.InsertColumn(0, "Address")
         self.InsertColumn(1, "Content")
@@ -127,6 +131,90 @@ class MemView(wxListCtrl):
 
 
 ##################################################################
+## memory viewer
+##################################################################
+class MemoryFrame(wxFrame, core.Observer):
+    #ids for buttons
+    TB_ADDRESS  = 2
+    TB_GO       = 3
+    
+    M_EXIT      = 21
+
+    SCR_MEM     = 30
+    
+    def __init__(self, parent, id, core):
+        """init the window."""
+        # First, call the base class' __init__ method to create the frame
+        wxFrame.__init__(self, parent, id, "Memory - MSP 430 Simulator", wxDefaultPosition, wxDefaultSize)
+        self.core = core
+        core.attach(self)       #register for updates
+        #menu
+        menu = wxMenu()
+        menu.Append(self.M_EXIT, "Close")
+        EVT_MENU(self, self.M_EXIT, self.OnMenuClose)
+        menuBar = wxMenuBar()
+        menuBar.Append(menu, "&File");
+        self.SetMenuBar(menuBar)
+        
+        #setup toolbar
+        tb = self.tb = self.CreateToolBar(wxTB_HORIZONTAL|wxNO_BORDER|wxTB_FLAT)
+        #a text field for a multiple steps
+        self.address = wxTextCtrl(tb, self.TB_ADDRESS, "0")
+        tb.AddControl(self.address)
+        #a button for a multiple steps
+        tb.AddControl(wxButton(tb, self.TB_GO, "Show"))
+        EVT_BUTTON(self, self.TB_GO, self.OnGoClick)
+        #sep----
+        tb.AddSeparator()
+        #create toolbar
+        tb.Realize()
+        # create a statusbar some game info
+        
+        #displays
+        self.mem = MemView(self, core)
+        
+        #init a sizer for the window layout
+        self.box = wxBoxSizer(wxVERTICAL)
+        self.box.Add(self.mem, 1, wxEXPAND)
+        self.box.Fit(self)                   #layout window
+        #setup handler for window resize
+        self.SetSizer(self.box)
+        self.SetAutoLayout(1)
+        EVT_CLOSE(self, self.OnCloseWindow)  #register window close handler
+        EVT_SIZE(self, self.OnSizeWindow)
+        EVT_TEXT_ENTER(self, self.TB_ADDRESS, self.OnGoClick)   #same as go button
+        
+        self.fastupdate = 0
+        #self.update()       #init displays
+
+    #observer pattern
+    def update(self, *args):
+        """process messages from the model."""
+        if not self.fastupdate:
+            #update memory in case RAM/peripherals are visible
+            self.mem.Refresh()
+
+    def OnMenuClose(self, event=None):
+        self.Hide()
+
+    def OnGoClick(self, event=None):
+        s = self.address.GetValue()
+        if s[0:2] == '0x':
+            address = int(s,16)
+        else:
+            address = int(s)
+        self.mem.EnsureVisible(address/16)
+        
+    def OnSizeWindow(self, event=None):
+        self.update()       #init displays
+        if event is not None: event.Skip()
+
+    # This method is called when the CLOSE event is
+    # sent to this window
+    def OnCloseWindow(self, event):
+        self.Hide()
+
+##################################################################
 ## main view of cpu core
 ##################################################################
 class CoreFrame(wxFrame, core.Observer):
@@ -138,23 +226,28 @@ class CoreFrame(wxFrame, core.Observer):
     M_EXIT      = 21
     M_OPEN      = 23
     M_NEW       = 24
-
-    SCR_MEM     = 30
+    M_MEM       = 25
     
     def __init__(self, parent, id):
         """init the window."""
         # First, call the base class' __init__ method to create the frame
         wxFrame.__init__(self, parent, id, "MSP 430 Simulator", wxDefaultPosition, wxDefaultSize)
         #menu
-        menu = wxMenu()
-        menu.Append(self.M_NEW, "New")
-        menu.Append(self.M_OPEN, "Open...")
-        menu.Append(self.M_EXIT, "Exit")
+        filemenu = wxMenu()
+        filemenu.Append(self.M_NEW, "New")
+        filemenu.Append(self.M_OPEN, "Open...")
+        filemenu.Append(self.M_EXIT, "Exit")
         EVT_MENU(self, self.M_NEW, self.OnMenuNew)
         EVT_MENU(self, self.M_OPEN, self.OnMenuOpen)
         EVT_MENU(self, self.M_EXIT, self.OnMenuExit)
+
+        viewmenu = wxMenu()
+        viewmenu.Append(self.M_MEM, "Memory")
+        EVT_MENU(self, self.M_MEM, self.OnMenuMem)
+
         menuBar = wxMenuBar()
-        menuBar.Append(menu, "&File");
+        menuBar.Append(filemenu, "&File");
+        menuBar.Append(viewmenu, "&View");
         self.SetMenuBar(menuBar)
         
         #setup toolbar
@@ -185,10 +278,9 @@ class CoreFrame(wxFrame, core.Observer):
         #displays
         self.panel = wxPanel(self,-1)
         self.dis = DisView(self.panel)
-        self.mem = MemView(self.panel)
         self.registers = wxTextCtrl(self.panel, 30,'', size=(100, 250), style=wxTE_MULTILINE|wxTE_RICH|wxTE_READONLY )
 
-        self.log = wxTextCtrl(self, 30,'', size=(800, 150), style=wxTE_MULTILINE)
+        self.log = wxTextCtrl(self, 30,'', size=(-1, 150), style=wxTE_MULTILINE)
 
 ##        sty = wxTextAttr(wxBLACK, wxWHITE,
 ##            wxFont(8, wxMODERN, wxNORMAL, wxNORMAL, 0, 'Courier New'))
@@ -197,11 +289,9 @@ class CoreFrame(wxFrame, core.Observer):
         self.core = core.Core(self)
         self.core.attach(self)     #register as observer
         self.dis.core = self.core
-        self.mem.core = self.core
 
         self.hbox = wxBoxSizer(wxHORIZONTAL)
         self.hbox.Add(self.dis, 1, wxEXPAND)
-        self.hbox.Add(self.mem, 0, wxEXPAND)
         self.hbox.Add(self.registers, 0, wxALIGN_TOP)
         self.panel.SetSizer(self.hbox)
         self.panel.SetAutoLayout(1)
@@ -219,6 +309,8 @@ class CoreFrame(wxFrame, core.Observer):
         EVT_CLOSE(self, self.OnCloseWindow)  #register window close handler
         EVT_SIZE(self, self.OnSizeWindow)
 
+        self.mem = None
+
         self.loglines = []
         self.fastupdate = 0
         #self.update()       #init displays
@@ -234,8 +326,6 @@ class CoreFrame(wxFrame, core.Observer):
                 regs += '%r\n' % r
             self.registers.SetValue(regs)
             self.dis.disasseble(self.core.PC.get())
-            #update memory in case RAM/peripherals are visible
-            self.mem.Refresh()
             #update text in statusbar
             self.SetStatusText('%r' % (args,), 0)
             self.log.SetValue(''.join(self.loglines))
@@ -264,6 +354,12 @@ class CoreFrame(wxFrame, core.Observer):
 
     def OnMenuExit(self, event=None):
         self.Destroy()
+
+    def OnMenuMem(self, event=None):
+        if self.mem is None:
+            self.mem = MemoryFrame(self, -1, self.core)
+        self.mem.Show()
+        self.mem.SetFocus()
 
     #def tick(self):
     #    """show elapsed time in the right side of the statusbar."""
@@ -300,7 +396,7 @@ class CoreFrame(wxFrame, core.Observer):
         #if code == WXK_BACK:
         print code
 
-#main window....
+#application....
 if __name__ == '__main__':
     # Every wxWindows application must have a class derived from wxApp
     class MyApp(wxApp):
