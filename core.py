@@ -377,6 +377,7 @@ class Memory(Subject):
         for l in file.readlines():
             if l[0] != ':':
                 raise "file format error"
+            l = l.strip()       #fix CR-LF issues...
             count    = int(l[1:3],16)
             address  = int(l[3:7],16)
             code     = int(l[7:9],16)
