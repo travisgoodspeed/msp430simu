@@ -726,7 +726,8 @@ class Core(Subject):
 
     def execSXT(self, bytemode, arg):
         if bytemode: raise "illegal use of SXT" #should actualy never happen
-        r = a = arg.get()
+        a = arg.get()
+        r = a & 0xff
         if a & 0x80:  r |= 0xff00
         self.SR.Z = (r == 0)
         self.SR.N = r & (bytemode and 0x80 or 0x8000)
