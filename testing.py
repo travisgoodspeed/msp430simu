@@ -92,6 +92,7 @@ if __name__ == '__main__':
         msp.memory.load(f)
         msp.start()
         failures += msp.testing.failures
+    print "-"*60
     if failures:
         print "%d failures" % failures
         sys.exit(1)

@@ -20,13 +20,13 @@ volatile unsigned char TEST_TEXTOUT asm("0x01b1");
 #define SUBTEST_SUCCESS         0x21
 #define SUBTEST_FAIL            0x22
 
-#define TEST(desc)              TEST_CMD = TEST_START; test_puts(desc)
+#define TEST(desc)              TEST_CMD = TEST_START, test_puts(desc)
 #define END_TEST                TEST_CMD = TEST_END
-#define SUBTEST(desc)           TEST_CMD = SUBTEST_START; test_puts(desc)
-#define FAIL(desc)              TEST_CMD = SUBTEST_FAIL; test_puts(desc)
-#define SUCCESS(desc)           TEST_CMD = SUBTEST_SUCCESS; test_puts(desc)
+#define SUBTEST(desc)           TEST_CMD = SUBTEST_START, test_puts(desc)
+#define FAIL(desc)              TEST_CMD = SUBTEST_FAIL, test_puts(desc)
+#define SUCCESS(desc)           TEST_CMD = SUBTEST_SUCCESS, test_puts(desc)
 #define OK SUCCESS
-#define CHECK(expr)             TEST_CMD = ((expr)?SUBTEST_SUCCESS:SUBTEST_FAIL)
+#define CHECK(text, expr)       test_puts(text), TEST_CMD = ((expr)?SUBTEST_SUCCESS:SUBTEST_FAIL)
 #define WRITE(text)             test_puts(text)
 
 //not so nice to put c in a h...

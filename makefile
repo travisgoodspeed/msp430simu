@@ -1,4 +1,4 @@
-COPT= -mmcu=msp430x1121 -O2
+COPT= -mmcu=msp430x149 -O2
 
 all:    testing_example.a43 force
 	./testing.py testing_example.a43
