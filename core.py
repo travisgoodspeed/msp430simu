@@ -714,12 +714,9 @@ class Core(Subject):
         arg.set(r)
 
     def execRRA(self, bytemode, arg):
-        shift = bytemode and 7 or 15
-        mask = bytemode and 0x7f or 0x7fff
-        
         a = arg.get()
         n = a & (bytemode and 0x80 or 0x8000)
-        r = (n<<shift) | ((a>>1) & mask)
+        r = n | ((a>>1) & (bytemode and 0x7f or 0x7fff))
         self.SR.Z = (r == 0)
         self.SR.N = r & (bytemode and 0x80 or 0x8000)
         self.SR.C = (a & 1)
@@ -728,11 +725,8 @@ class Core(Subject):
 
     def execSXT(self, bytemode, arg):
         if bytemode: raise "illegal use of SXT" #should actualy never happen
-        a = arg.get()
-        sign = not not (a & 0x80)
-        r = a
-        for i in range(8,15):
-            r |= sign << i
+        r = a = arg.get()
+        if a & 0x80:  r |= 0xff00
         self.SR.Z = (r == 0)
         self.SR.N = r & (bytemode and 0x80 or 0x8000)
         self.SR.C = (a & 1)

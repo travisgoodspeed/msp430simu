@@ -15,10 +15,7 @@ unsigned int uix, uiy;
 long lx, ly;
 unsigned long ulx, uly;
 
-int main() {
-    static char st = 0;
-    TEST("Example tests for mspgcc\n");    //all test files MUST start with that one
-    
+void subt1(void) {    
     SUBTEST("Subtest 1\n");       //Begin with a new test
     //set up test inputs
     a = '0';
@@ -26,8 +23,10 @@ int main() {
     //perform the calculation to be tested
     r = (a << 8) | b;
     CHECK("leftshift:", r == 0x3041);
+}
 
-
+void booltest(void) {
+    static char st = 0;
     SUBTEST("boolean not\n");       //Begin with a new test
     //set up test inputs
     //perform the calculation to be tested
@@ -40,19 +39,28 @@ int main() {
     CHECK("r  == 1:\t", r == 1 );
     CHECK("r is true?:\t", r);
     CHECK("!r == 0:\t", !r == 0);
+}
 
+void sintdiv(void) {
     SUBTEST("int division\n");       //Begin with a new test
     ix = 10;  iy = -2;  CHECK("pos/neg:\t", (ix/iy) == -5 );
     ix = -10; iy = 2;   CHECK("neg/pos:\t", (ix/iy) == -5 );
     ix = 10;  iy = 2;   CHECK("pos/pos:\t", (ix/iy) == 5 );
     ix = -10; iy = -2;  CHECK("neg/neg:\t", (ix/iy) == 5 );
     
+}
+
+void slongdiv(void) {
     SUBTEST("signed long division\n");       //Begin with a new test
     lx = 10L; ly = -2L; CHECK("pos/neg:\t", (lx/ly) == -5 );
     lx = -10L;ly = 2L;  CHECK("neg/pos:\t", (lx/ly) == -5 );
     lx = 10L; ly = 2L;  CHECK("pos/pos:\t", (lx/ly) == 5 );
     lx = -10L;ly = -2L; CHECK("neg/neg:\t", (lx/ly) == 5 );
+    //workaround test
+    lx = -10L;ly = -2L; CHECK("(us) -neg/-neg:\t", ((unsigned long)(-lx)/(unsigned long)(-ly)) == 5 );
+}
 
+void ulongdiv(void) {
     SUBTEST("unsigned long division\n");       //Begin with a new test
     ulx = 10L;uly = 2L; CHECK("10/2:\t\t", (ulx/uly) == 5 );
     ulx = 11L;uly = 2L; CHECK("11/2:\t\t", (ulx/uly) == 5 );
@@ -60,7 +68,9 @@ int main() {
     ulx = 12345L;uly = 12345L;CHECK("12345/12345:\t", (ulx/uly) == 1 );
     ulx = 0L;uly = 99L; CHECK("0/99:\t\t", (ulx/uly) == 0 );
     ulx = 27L;uly = 4L; CHECK("27/4:\t\t", (ulx/uly) == 6 );
+}
 
+void ulongshl(void) {
     SUBTEST("unsigned long shift left\n");       //Begin with a new test
     ulx = 1L;
     CHECK("1<<0:\t\t", (ulx<<0) == 1L );
@@ -76,7 +86,9 @@ int main() {
     CHECK("1<<20:\t\t", (ulx<<20) == 1048576L );
     CHECK("1<<31:\t\t", (ulx<<31) == 2147483648L );
     CHECK("1<<32:\t\t", (ulx<<32) == 0 );
+}
 
+void slongshl(void) {
     SUBTEST("signed long shift left\n");       //Begin with a new test
     lx = 1L;
     CHECK("1<<0:\t\t", (lx<<0) == 1L );
@@ -92,7 +104,9 @@ int main() {
     CHECK("1<<20:\t\t", (lx<<20) == 1048576L );
     CHECK("1<<31:\t\t", (lx<<31) == 2147483648L );
     CHECK("1<<32:\t\t", (lx<<32) == 0 );
+}
 
+void usintshl(void) {
     SUBTEST("unsigned int shift left\n");       //Begin with a new test
     uix = 1;
     CHECK("1<<0:\t\t", (uix<<0) == 1 );
@@ -105,7 +119,9 @@ int main() {
     CHECK("1<<12:\t\t", (uix<<12) == 4096 );
     CHECK("1<<15:\t\t", (uix<<15) == 32768 );
     CHECK("1<<16:\t\t", (uix<<16) == 0 );
+}
 
+void sintshl(void) {
     SUBTEST("signed int shift left\n");       //Begin with a new test
     ix = 1;
     CHECK("1<<0:\t\t", (ix<<0) == 1 );
@@ -118,33 +134,52 @@ int main() {
     CHECK("1<<12:\t\t", (ix<<12) == 4096 );
     CHECK("1<<15:\t\t", (ix<<15) == 1<<15 );    //32768
     CHECK("1<<16:\t\t", (ix<<16) == 0 );
+}
 
+void usintshr(void) {
     SUBTEST("unsigned int shift right\n");       //Begin with a new test
     uix = 0x8000;
-    CHECK("0x8000>>0:\t\t", (uix>>0) == 0x8000 );
-    CHECK("0x8000>>1:\t\t", (uix>>1) == 0x4000 );
-    CHECK("0x8000>>2:\t\t", (uix>>2) == 0x2000 );
-    CHECK("0x8000>>3:\t\t", (uix>>3) == 0x1000 );
-    CHECK("0x8000>>5:\t\t", (uix>>5) ==  0x0400);
-    CHECK("0x8000>>8:\t\t", (uix>>8) ==  0x0080);
-    CHECK("0x8000>>11:\t\t", (uix>>11) == 0x0010 );
-    CHECK("0x8000>>12:\t\t", (uix>>12) == 0x0008 );
-    CHECK("0x8000>>15:\t\t", (uix>>15) == 0x0001 );
-    CHECK("0x8000>>16:\t\t", (uix>>16) == 0 );
+    CHECK("0x8000>>0:\t", (uix>>0) == 0x8000 );
+    CHECK("0x8000>>1:\t", (uix>>1) == 0x4000 );
+    CHECK("0x8000>>2:\t", (uix>>2) == 0x2000 );
+    CHECK("0x8000>>3:\t", (uix>>3) == 0x1000 );
+    CHECK("0x8000>>5:\t", (uix>>5) ==  0x0400);
+    CHECK("0x8000>>8:\t", (uix>>8) ==  0x0080);
+    CHECK("0x8000>>11:\t", (uix>>11) == 0x0010 );
+    CHECK("0x8000>>12:\t", (uix>>12) == 0x0008 );
+    CHECK("0x8000>>15:\t", (uix>>15) == 0x0001 );
+    CHECK("0x8000>>16:\t", (uix>>16) == 0 );
+}
 
+void sintshr(void) {
     SUBTEST("signed int shift right\n");       //Begin with a new test
     ix = 0x8000;
-    CHECK("0x8000>>0:\t\t", (ix>>0) == 0x8000 );
-    CHECK("0x8000>>1:\t\t", (ix>>1) == 0x4000 );
-    CHECK("0x8000>>2:\t\t", (ix>>2) == 0x2000 );
-    CHECK("0x8000>>3:\t\t", (ix>>3) == 0x1000 );
-    CHECK("0x8000>>5:\t\t", (ix>>5) ==  0x0400);
-    CHECK("0x8000>>8:\t\t", (ix>>8) ==  0x0080);
-    CHECK("0x8000>>11:\t\t", (ix>>11) == 0x0010 );
-    CHECK("0x8000>>12:\t\t", (ix>>12) == 0x0008 );
-    CHECK("0x8000>>15:\t\t", (ix>>15) == 0x0001 );
-    CHECK("0x8000>>16:\t\t", (ix>>16) == 0 );
+    CHECK("0x8000>>0:\t", (ix>>0) == 0x8000 );
+    CHECK("0x8000>>1:\t", (ix>>1) == 0xC000 );
+    CHECK("0x8000>>2:\t", (ix>>2) == 0xE000 );
+    CHECK("0x8000>>3:\t", (ix>>3) == 0xF000 );
+    CHECK("0x8000>>5:\t", (ix>>5) ==  0xFC00);
+    CHECK("0x8000>>8:\t", (ix>>8) ==  0xFF80);
+    CHECK("0x8000>>11:\t", (ix>>11) == 0xFFF0 );
+    CHECK("0x8000>>12:\t", (ix>>12) == 0xFFF8 );
+    CHECK("0x8000>>15:\t", (ix>>15) == 0xFFFF );
+    CHECK("0x8000>>16:\t", (ix>>16) == 0xFFFF );
+}
 
+
+int main() {
+    TEST("Example tests for mspgcc\n");    //all test files MUST start with that one
+    
+    subt1();
+    sintdiv();
+    slongdiv();
+    ulongdiv();
+    ulongshl();
+    slongshl();
+    usintshl();
+    sintshl();
+    usintshr();
+    sintshr();
 
     END_TEST;                 //finish tests. this is important for the simu that it know when it can abort
 }
