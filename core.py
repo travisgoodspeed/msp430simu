@@ -249,7 +249,7 @@ class Flash(Peripheral):
     def __init__(self, log, startaddress = 0xf000, endaddress = 0xffff):
         self.startaddress = startaddress
         self.endaddress = endaddress
-        Peripheral.__init__(self, log)
+        Peripheral.__init__(self, log)  #calls self.reset()
     
     def __contains__(self, address):
         """return true if address is handled by this peripheral"""
@@ -257,7 +257,7 @@ class Flash(Peripheral):
 
     def reset(self):
         """perform a power up reset"""
-        self.values = [0] * (self.endaddress - self.startaddress + 1)
+        self.values = [0xff] * (self.endaddress - self.startaddress + 1)
 
     def set(self, address, value, bytemode=0):
         """read from address"""
@@ -283,7 +283,7 @@ class RAM(Peripheral):
     def __init__(self, log, startaddress = 0x0200, endaddress = 0x02ff):
         self.startaddress = startaddress
         self.endaddress = endaddress
-        Peripheral.__init__(self, log)
+        Peripheral.__init__(self, log)  #calls self.reset()
     
     def __contains__(self, address):
         """return true if address is handled by this peripheral"""
@@ -358,12 +358,8 @@ class Memory(Subject):
         return self
 
     def reset(self):
-        """perform a power up reset"""
+        """perform a reset"""
         for p in self.peripherals: p.reset()
-        self.clear()
-        self.notify()
-
-    def clear(self):
         self.memory = [0]*65536
         self.notify()
 
@@ -924,10 +920,10 @@ class Core(Subject):
         self.CG2 = self.R[3]
         self.cycles = 0
 
-    def clear(self):
+    def reset(self):
         for r in self.R:
             r.set(0)
-        self.memory.clear()
+        self.memory.reset()
         self.notify()
 
     def disassemble(self, pc):
