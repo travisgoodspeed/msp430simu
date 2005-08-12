@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import sys
+import logging
 
 ##################################################################
 ## Observer Pattern
@@ -42,14 +43,14 @@ class AddressWatch:
 
     def __call__(self, address, bytemode, oldvalue, newvalue):
         if newvalue:    #for writes
-            self.log.write(
+            self.log.info(
                 ('WATCHr: @0x%%04x: 0x%%0%dx -> 0x%%0%dx: %%s\n' % (
                     bytemode and 2 or 4, bytemode and 2 or 4)
                 ) % (
                     address, oldvalue, newvalue, self.description
                 ))
         else:           #for reads
-            self.log.write(
+            self.log.info(
                 ('WATCHr: @0x%%04x: 0x%%0%dx: %%s\n' % (
                     bytemode and 2 or 4)
                 ) % (
@@ -64,7 +65,7 @@ class MemoryAccessWatch:
 
     def __call__(self, memory, bytemode, writing, address):
         if self.condition_fu(memory, writing, address):
-            self.log.write('WATCHx: @0x%04x: %s %s\n' % (
+            self.log.info('WATCHx: @0x%04x: %s %s\n' % (
                 address, bytemode and 'b' or 'w', self.description
             ))
 
@@ -83,14 +84,14 @@ class Register(Subject):
 
     def set(self, value, bytemode=0, am=0):
         """write value to register"""
-        if self.log: self.log.write('REGSTR: write    0x%04x -> R%02d mode:%s\n' % (value, self.regnum, bytemode and 'b' or 'w'))
+        if self.log: self.log.info('REGSTR: write    0x%04x -> R%02d mode:%s\n' % (value, self.regnum, bytemode and 'b' or 'w'))
         self.reg = value & (bytemode and 0xff or 0xffff)
         self.notify()
 
     def get(self, bytemode=0, am=0):
         """read register"""
         value = self.reg & (bytemode and 0xff or 0xffff)
-        if self.log: self.log.write('REGSTR: read     R%02d -> 0x%04x mode:%s\n' % (self.regnum, value, bytemode and 'b' or 'w'))
+        if self.log: self.log.info('REGSTR: read     R%02d -> 0x%04x mode:%s\n' % (self.regnum, value, bytemode and 'b' or 'w'))
         return value
     
     def __getitem__(self,index):
@@ -115,7 +116,7 @@ class PC(Register):
     def next(self):
         value = self.core.memory.get(bytemode=0, address=self.reg)
         self.set( self.get() + 2)
-        if self.log: self.log.write('REGSTR: next @PC, PC+\n')
+        if self.log: self.log.info('REGSTR: next @PC, PC+\n')
         return value
 
     def __repr__(self):
@@ -130,14 +131,14 @@ class SP(Register):
     """Stack pointer"""
     def push(self,value):
         self.reg -= 2
-        if self.log: self.log.write('REGSTR: push @-SP,      0x%04x\n' % (value))
+        if self.log: self.log.info('REGSTR: push @-SP,      0x%04x\n' % (value))
         self.core.memory.set(bytemode=0, address=self.reg, value=value)
         self.notify()
     
     def pop(self):
         value = self.core.memory.get(bytemode=0, address=self.reg)
         self.reg += 2
-        if self.log: self.log.write('REGSTR: pop  @SP+       0x%04x\n' % (value))
+        if self.log: self.log.info('REGSTR: pop  @SP+       0x%04x\n' % (value))
         self.notify()
         return value
 
@@ -187,7 +188,7 @@ class SR(Register):
     def get(self, bytemode=0, am=0):
         if am == 0: return self.reg & (bytemode and 0xff or 0xffff)
         value = self.consts[am] & (bytemode and 0xff or 0xffff)
-        if self.log: self.log.write('REGSTR: read     R%02d -> 0x%04x mode:%s\n' % (self.regnum, value, bytemode and 'b' or 'w'))
+        if self.log: self.log.info('REGSTR: read     R%02d -> 0x%04x mode:%s\n' % (self.regnum, value, bytemode and 'b' or 'w'))
         return value
 
     def __repr__(self):
@@ -208,7 +209,7 @@ class CG2(Register):
 
     def get(self, bytemode=0, am=0):
         value = self.consts[am] & (bytemode and 0xff or 0xffff)
-        if self.log: self.log.write('REGSTR: read     R%02d -> 0x%04x mode:%s\n' % (self.regnum, value, bytemode and 'b' or 'w'))
+        if self.log: self.log.info('REGSTR: read     R%02d -> 0x%04x mode:%s\n' % (self.regnum, value, bytemode and 'b' or 'w'))
         return value
 
     def __repr__(self):
@@ -386,7 +387,7 @@ class Multiplier(Peripheral):
                     self.sumext = 0
             if self.mode == self.MULANDACCUM:
                 self.acc += r
-                if self.acc > 0xffffffff:
+                if self.acc > 0xffffffffL:
                     self.sumext = 0x0001
                 else:
                     self.sumext = 0
@@ -400,7 +401,7 @@ class Multiplier(Peripheral):
                     self.sumext = 0
             #TODO: broken!!
         elif address == 0x13a:    #ResLo/acc
-            self.acc = (self.acc & 0xffff0000) | value
+            self.acc = (self.acc & 0xffff0000L) | value
         elif address == 0x13c:    #ResHi/acc
             self.acc = (self.acc & 0x0000ffff) | (value<<16)
         elif address == 0x13e:    #SumExt
@@ -436,13 +437,13 @@ class ExtendedPorts(Peripheral):
     def set(self, address, value, bytemode=0):
         """write value to address"""
         if not bytemode and self.log:
-            self.log.write('PERIPH: Access Error - expected byte but got word access\n')
+            self.log.info('PERIPH: Access Error - expected byte but got word access\n')
         self.values[address] = value & 0xff
 
     def get(self, address, bytemode=0):
         """read from address"""
         if not bytemode and self.log:
-            self.log.write('PERIPH: Access Error - expected byte but got word access\n')
+            self.log.info('PERIPH: Access Error - expected byte but got word access\n')
         return self.values[address]
 
 
@@ -475,14 +476,14 @@ class Memory(Subject):
 
     def load(self, filename):
         "fill memory with the contents of a file. file type is determined from extension"
-        if self.log: self.log.write('MEMORY: loading file %s\n' % filename)
+        self.log.info('MEMORY: loading file %s\n' % filename)
         if filename[-4:].lower() == '.txt':
             self.loadTIText(open(filename, "r"))
         else:
             self.loadIHex(open(filename, "r"))
 
     def loadIHex(self, file):
-        "load data from a (opened) file in Intel-HEX format"
+        """load data from a (opened) file in Intel-HEX format"""
         for l in file.readlines():
             if l[0] != ':':
                 raise "file format error"
@@ -499,11 +500,11 @@ class Memory(Subject):
             elif code in [0x01, 0x02, 0x03]:
                 pass        #known types but not useful?!?
             else:
-                sys.stderr.write("Ignored unknown field (type 0x%02x) in ihex file.\n" % code)
+                self.log.warning("Ignored unknown field (type 0x%02x) in ihex file." % (code,))
         self.notify()
 
     def loadTIText(self, file):
-        "load data from a (opened) file in TI-Text format"
+        """load data from a (opened) file in TI-Text format"""
         next        = 1
         currentAddr = 0
         startAddr   = 0
@@ -539,7 +540,7 @@ class Memory(Subject):
 
     def set(self, address, value, bytemode=0):
         """write value to address"""
-        if self.log: self.log.write('MEMORY: write 0x%04x <- 0x%04x mode:%s\n' % (address, value, bytemode and 'b' or 'w'))
+        self.log.info('MEMORY: write 0x%04x <- 0x%04x mode:%s' % (address, value, bytemode and 'b' or 'w'))
         if self.setwatches.has_key(address): self.setwatches[address](address, bytemode, self.memory[address], value)  #call watch
         for a in self.accesswatches: a(self, bytemode, 1, address)
         self._set(address, value, bytemode)
@@ -563,7 +564,7 @@ class Memory(Subject):
         if self.getwatches.has_key(address): self.getwatches[address](address, bytemode, self.memory[address], None)  #call watch
         for a in self.accesswatches: a(self, bytemode, 0, address)
         value = self._get(address, bytemode)
-        if self.log: self.log.write('MEMORY: read  0x%04x -> 0x%04x mode:%s\n' % (address, value, bytemode and 'b' or 'w'))
+        self.log.info('MEMORY: read  0x%04x -> 0x%04x mode:%s' % (address, value, bytemode and 'b' or 'w'))
         return value
 
     def hexline(self, address, width=16):
@@ -583,7 +584,6 @@ class Memory(Subject):
         while (toadr is not None and adr < toadr+1) or (toadr is None) and len(res) < lines:
             res.append('%s  %s %s' % (self.hexline(adr)))
             adr += 16
-        line += '\n'
         return res
 
 ##################################################################
@@ -968,7 +968,7 @@ class Core(Subject):
             self.PC.set(self.PC.get() + int(offset))
 
     def execJN(self, bytemode, offset):
-        if not self.SR.Z:
+        if not self.SR.N:
             self.PC.set(self.PC.get() + int(offset))
     
     def execJGE(self, bytemode, offset):
@@ -1029,7 +1029,7 @@ class Core(Subject):
     def __init__(self, log=None):
         """initialize core with registers and memory"""
         Subject.__init__(self)          #init model for observer pattern
-        self.log = log
+        self.log = log #logging.getLogger('msp430 core')
         self.memory = Memory(log)
         self.R = (
             PC(self, regnum=0, log=log),
@@ -1124,11 +1124,11 @@ class Core(Subject):
             ', '.join(map(str,args[1:])),
             cycles
         )
-        self.log.write('#CORE#: %s\n' % (note))
+        self.log.info('step: %s' % (note))
         if execfu:
             apply(execfu, [self]+args)
         else:
-            self.log.write("#CORE#: %s\n" % (name))
+            self.log.warning("%s @0x%02x" % (name, address))
         self.notify()
         return note
 
@@ -1145,54 +1145,39 @@ class Tracer:
         self.log = log
 
     def start(self, startadr, maxsteps=100):
-        self.log.write( 'TRACER: set startaddress\n')
+        self.log.info( 'TRACER: set startaddress\n')
         self.core.PC.set(startadr)
-        self.log.write( 'TRACER: *** starting trace (maxsteps=%d)\n' % (maxsteps))
+        self.log.info( 'TRACER: *** starting trace (maxsteps=%d)\n' % (maxsteps))
         step = 1
         while step <= maxsteps:
             self.core.step()
-            self.log.write( 'TRACER: (step %d, cycle %d)\n%r\n' % (
+            self.log.info( 'TRACER: (step %d, cycle %d)\n%r\n' % (
                 step, self.core.cycles, self.core))
             step += 1
-
-##################################################################
-## logging facility
-##################################################################
-
-class Logger:
-    """Logging class with file like interface"""
-    def __init__(self, filename=None, enabled=1):
-        if filename is None:
-            self.file = sys.stdout
-        else:
-            self.file = open(filename, 'w')
-        self.enabled = enabled
-
-    def write(self, s):
-        if self.enabled: self.file.write(s)
 
 ##################################################################
 ## testing
 ##################################################################
 
 if __name__ == '__main__':
-    log = Logger('log.trace')
+    logging.basicConfig()
+    log = logging.getLogger('trace')
     
     core = Core(log)
     core.SR.Z = 243
     print core.SR.Z
     print repr(core.SR)
 
-    core.memory.load('tests.a43')
-    log.enabled = 0
+    #~ core.memory.load('tests.a43')
+    #~ core.memory.load('../exmaples/leds/leds.a43')
+    
+    #~ print "-"*40, "memory dump"
+    #~ print '\n'.join(core.memory.hexdump(0xF000, 0xF086))
 
-    print "-"*40, "memory dump"
-    print '\n'.join(core.memory.hexdump(0xF000, 0xF086))
-
-    print "-"*40, "disassemble"
-    pc = PC(core, 0xf000) #, 0xf71f
-    while pc.get() < 0xF086:
-        print "0x%04x:" % pc, core.disassemble(pc)
+    #~ print "-"*40, "disassemble"
+    #~ pc = PC(core, 0xf000) #, 0xf71f
+    #~ while pc.get() < 0xF086:
+        #~ print "0x%04x:" % pc, core.disassemble(pc)
 
 ##    print "-"*40, "single step"
 ##    core.PC.set(0xf000)
@@ -1221,10 +1206,9 @@ if __name__ == '__main__':
         ),
         'flash memory written',
     ))
-    log.enabled = 1
     core.memory.hexdump(0x0200, 0x02ff, log)
     tracer = Tracer(core, log)
-    tracer.start(0xf000,43) #only N steps
+    tracer.start(0xf000, 43) #only N steps
     core.memory.hexdump(0x0200, 0x02ff, log)
 
 
