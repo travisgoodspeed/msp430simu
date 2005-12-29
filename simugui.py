@@ -7,7 +7,7 @@ from wxPython.grid import *
 import core
 
 ##################################################################
-## view for disassebled memory
+## view for disassembled memory
 ##################################################################
 class DisTable(wxPyGridTableBase):
     """Data model for wxGrid """
@@ -56,7 +56,7 @@ class DisTable(wxPyGridTableBase):
             pass
         return self.attr1.Clone()
 
-    def disasseble(self, address, lines = 0):
+    def disassemble(self, address, lines = 0):
         #if not self.core: return
         self.discache = []
         linelist = []
@@ -103,8 +103,8 @@ class DisView(wxGrid):
         self.table.core = self.core = core
 
     #update display
-    def disasseble(self, address, lines = 0):
-        self.table.disasseble(address, lines)
+    def disassemble(self, address, lines = 0):
+        self.table.disassemble(address, lines)
         self.Refresh()
 
 
@@ -134,11 +134,11 @@ class MemTable(wxPyGridTableBase):
     def GetValue(self, row, col):
         if self.core:
             if col==0:
-                return "0x%04x" % (row * 0xf)
+                return "0x%04x" % (row * 16)
             elif col == 17: #ASCII view
                 address = row<<4
                 bytes = [self.core.memory._get(a, bytemode=1) for a in range(address, address+16)]
-                return ('%c'*len(bytes)) % tuple(map(lambda x: x>32 and x or ord('.'), bytes)) #ascii
+                return ('%c'*len(bytes)) % tuple(map(lambda x: 32<=x<127 and x or ord('.'), bytes)) #ascii
             else:
                 return "%02x" % self.core.memory._get( (row<<4) + col, bytemode=1)
                 #return self.core.memory.hexline(row<<4)[col]   #very inefficient here!
@@ -397,7 +397,7 @@ class DisFrame(wxFrame, core.Observer):
             address = int(s,16)
         else:
             address = int(s)
-        self.dis.disasseble(address)
+        self.dis.disassemble(address)
         #self.mem.EnsureVisible(address/16)
         
     def OnSizeWindow(self, event=None):
@@ -485,11 +485,11 @@ class CoreFrame(wxFrame, core.Observer):
 
         #create cpu core
         ##TODO: isolate this    ##$$$$$$$
-        self.core = core.Core(self)
-        self.core.memory.append(core.ExtendedPorts(self.log))
-        self.core.memory.append(core.Flash(self.log))
-        self.core.memory.append(core.RAM(self.log))
-        self.core.memory.append(core.Multiplier(self.log))
+        self.core = core.Core()
+        self.core.memory.append(core.ExtendedPorts())
+        self.core.memory.append(core.Flash())
+        self.core.memory.append(core.RAM())
+        self.core.memory.append(core.Multiplier())
         
         self.core.attach(self)     #register as observer
         self.dis.SetCore(self.core)
@@ -521,7 +521,7 @@ class CoreFrame(wxFrame, core.Observer):
         self.lastpath = '.'
         #self.update()       #init displays
         #self.OnScrollMem()  #init scollbar
-        #self.disasseble(0)
+        #self.disassemble(0)
 
     #observer pattern
     def update(self, *args):
@@ -531,7 +531,7 @@ class CoreFrame(wxFrame, core.Observer):
             for r in self.core.R:
                 regs += '%r\n' % r
             self.registers.SetValue(regs)
-            self.dis.disasseble(self.core.PC.get(), lines = 20) #update lockahead
+            self.dis.disassemble(self.core.PC.get(), lines = 20) #update lookahead
             #update text in statusbar
             self.SetStatusText('%r' % (args,), 0)
             self.log.SetValue(''.join(self.loglines))
@@ -551,9 +551,10 @@ class CoreFrame(wxFrame, core.Observer):
         
     def OnMenuOpen(self, event=None):
         dlg = wxFileDialog(self,
-                "Choose a ihex file",
+                "Choose a MSP430 binary file",
                 ".",
                 "",
+                #~ "MSP430 ELF(*.elf)|*.elf|Intel HEX (*.a43)|*.a43|TI Text(*.txt)|*.txt",
                 "Intel HEX (*.a43)|*.a43|TI Text(*.txt)|*.txt",
                 wxOPEN
         )
@@ -561,7 +562,7 @@ class CoreFrame(wxFrame, core.Observer):
         if dlg.ShowModal() == wxID_OK:
             self.lastpath = dlg.GetDirectory()
             self.core.memory.load(dlg.GetPath())
-            self.core.PC.set(self.core.memory.get(0xfffe)) ##DEBUG !!!!!!!!!!!
+            self.core.PC.set(self.core.memory.get(0xfffe)) #XXX DEBUG !!!!!!!!!!!
             self.update()
         dlg.Destroy()
 
@@ -617,6 +618,9 @@ class CoreFrame(wxFrame, core.Observer):
 
 #application....
 if __name__ == '__main__':
+    #~ import logging
+    #~ logging.basicConfig(level=logging.DEBUG)
+    
     # Every wxWindows application must have a class derived from wxApp
     class MyApp(wxApp):
         # wxWindows calls this method to initialize the application

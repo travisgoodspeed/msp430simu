@@ -19,6 +19,8 @@ volatile unsigned char TEST_TEXTOUT asm("0x01b1");
 #define SUBTEST_START           0x20    //A new subtest begins
 #define SUBTEST_SUCCESS         0x21    //The subtest was successful
 #define SUBTEST_FAIL            0x22    //The subtest has failed
+#define SUBTEST_EXECUTE         0x2e    //subtest is running
+#define SUBTEST_EXECUTE_DONE    0x2f    //subtest is finished
 
 //use the following macros in your test programms
 
@@ -32,9 +34,9 @@ volatile unsigned char TEST_TEXTOUT asm("0x01b1");
 #define END_TEST                TEST_CMD = TEST_END
 
 //not realy useful ones, look below
-#define SUBTEST(desc)           TEST_CMD = SUBTEST_START, test_puts(desc)
-#define FAIL(desc)              TEST_CMD = SUBTEST_FAIL, test_puts(desc)
-#define SUCCESS(desc)           TEST_CMD = SUBTEST_SUCCESS, test_puts(desc)
+#define SUBTEST(desc)           test_puts(desc), TEST_CMD = SUBTEST_START, TEST_CMD = SUBTEST_EXECUTE
+#define FAIL(desc)              TEST_CMD = SUBTEST_EXECUTE_DONE, test_puts(desc), TEST_CMD = SUBTEST_FAIL
+#define SUCCESS(desc)           TEST_CMD = SUBTEST_EXECUTE_DONE, test_puts(desc), TEST_CMD = SUBTEST_SUCCESS
 #define OK SUCCESS
 
 //use this for the subtests: e.g. 'CHECK("is a==b?", a==b)'
@@ -42,7 +44,7 @@ volatile unsigned char TEST_TEXTOUT asm("0x01b1");
 
 //not so nice to put C code in a h...
 //but it saves linking separate sources for mostly simple tests files.
-void test_puts(char * text) {
+static void test_puts(char * text) {
     while (*text) TEST_TEXTOUT = *text++;
 }
 

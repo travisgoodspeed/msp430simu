@@ -16,25 +16,29 @@
 #please look at the example_tests.c and testing.h for more details on
 #how to write tests
 
-import sys, core
+import sys, core, logging
 
 #CMD codes:
-IDLE                = 0x00
-TEST_START          = 0x10
-TEST_END            = 0x11
-SUBTEST_START       = 0x20
-SUBTEST_SUCCESS     = 0x21
-SUBTEST_FAIL        = 0x22
+IDLE                    = 0x00
+TEST_START              = 0x10
+TEST_END                = 0x11
+SUBTEST_START           = 0x20
+SUBTEST_SUCCESS         = 0x21
+SUBTEST_FAIL            = 0x22
+SUBTEST_EXECUTE         = 0x2e
+SUBTEST_EXECUTE_DONE    = 0x2f
 
 class Testing(core.Peripheral):
     color = (0x66, 0xff, 0xee)      #color for graphical representation
 
     def __init__(self, log, startaddress = 0x01b0):
         self.startaddress = startaddress
-        core.Peripheral.__init__(self, log)  #calls self.reset()
+        core.Peripheral.__init__(self)  #calls self.reset()
+        self.log = logging.getLogger('test io')
         self.mode = IDLE
         self.testcount = 0
         self.failures = 0
+        self.text_buffer = []
     
     def __contains__(self, address):
         """return true if address is handled by this peripheral"""
@@ -47,27 +51,40 @@ class Testing(core.Peripheral):
     def set(self, address, value, bytemode=0):
         """read from address"""
         if not bytemode and self.log:
-            self.log.write('TESTNG: Access Error - expected byte but got word access\n')
+            self.log.error('TESTNG: Access Error - expected byte but got word access')
         a = address - self.startaddress
         if a == 0:      #CMD
             if value == TEST_START:
-                sys.stdout.write("***************************\n")
+                self.log.info("Test start")
+            elif value == TEST_END:
+                self.log.info("Test finished")
             elif value == SUBTEST_START:
                 self.testcount += 1
-                sys.stdout.write("-----------------\n")
+                self.log.info("Test: %r" % ''.join(self.text_buffer))
+                del self.text_buffer[:]
             elif value == SUBTEST_SUCCESS:
-                sys.stdout.write("SUCCESS\n")
+                self.log.info("SUCCESS: %r" % ''.join(self.text_buffer))
+                del self.text_buffer[:]
             elif value == SUBTEST_FAIL:
-                sys.stdout.write("FAIL\n")
+                self.log.error("FAIL: %r" % ''.join(self.text_buffer))
+                del self.text_buffer[:]
                 self.failures += 1
+            elif value == SUBTEST_EXECUTE:
+                del self.text_buffer[:]
+            elif value == SUBTEST_EXECUTE_DONE:
+                if self.text_buffer:
+                    self.log.info(''.join(self.text_buffer))
+                    del self.text_buffer[:]
+            else:
+                self.log.error('unknown value 0x%02x written to test port' % value)
             self.mode = value
         elif a == 1:    #TEXT OUT
-            sys.stdout.write(chr(value))
+            self.text_buffer.append(chr(value))
 
     def get(self, address, bytemode=0):
         """write value to address"""
         if not bytemode and self.log:
-            self.log.write('TESTNG: Access Error - expected byte but got word access\n')
+            self.log.error('TESTNG: Access Error - expected byte but got word access')
         return 0    #no functionality right now
 
 class TestCore(core.Core):
@@ -75,18 +92,18 @@ class TestCore(core.Core):
         core.Core.__init__(self, log)
         self.testing = Testing(log)
         self.memory.append(self.testing)    #insert new peripherals in MSP's address pace
-        self.memory.append(core.Multiplier(self.log))
+        self.memory.append(core.Multiplier())
         #self.reset()
 
     def start(self, maxsteps=2000):
-        self.log.write( 'TSTCOR: set startaddress\n')
+        self.log.debug( 'TSTCOR: set startaddress')
         self.PC.set(self.memory.get(0xfffe))
-        self.log.write( 'TSTCOR: *** starting trace (maxsteps=%d)\n' % (maxsteps))
+        self.log.debug( 'TSTCOR: *** starting trace (maxsteps=%d)' % (maxsteps))
         step = 1
         forever = 0
         while forever or step <= maxsteps:
             self.step()
-            self.log.write( 'TSTCOR: (step %d, cycle %d)\n%r\n' % (
+            self.log.debug( 'TSTCOR: (step %d, cycle %d)\n%r' % (
                 step, self.cycles, self))
             step += 1
             if self.testing.mode == TEST_END:
@@ -97,11 +114,16 @@ class TestCore(core.Core):
             print "This is not a file for the tester!"
 
 if __name__ == '__main__':
-    log = open("testing.log","w")
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s %(levelname)s %(message)s',
+                        filename='testing.log',
+                        filemode='w')
+    log = logging.getLogger('testing')
+    
     failures = 0
     for f in sys.argv[1:]:
         print "Running Test: %s ...\n" % f
-        log.write("Running Test: %s ...\n" % f)
+        log.info("Running Test: %s ..." % f)
         msp = TestCore(log)
         msp.memory.load(f)
         msp.start()

@@ -37,8 +37,8 @@ class Subject:
 # watches log access on specific addresses in memory
 
 class AddressWatch:
-    def __init__(self, log, description):
-        self.log = log
+    def __init__(self, description):
+        self.log = logging.getLogger('watch')
         self.description = description
 
     def __call__(self, address, bytemode, oldvalue, newvalue):
@@ -58,8 +58,8 @@ class AddressWatch:
                 ))
 
 class MemoryAccessWatch:
-    def __init__(self, log, condition_fu, description):
-        self.log = log
+    def __init__(self, condition_fu, description):
+        self.log = logging.getLogger('watch')
         self.description = description
         self.condition_fu = condition_fu
 
@@ -75,23 +75,24 @@ class MemoryAccessWatch:
 
 class Register(Subject):
     """generic register"""
-    def __init__(self, core, reg=0, regnum=None, log=None):
+    def __init__(self, core, reg=0, regnum=None):
         Subject.__init__(self)          #init model for observer pattern
         self.core = core
         self.reg = reg
         self.regnum = regnum
-        self.log = log
+        self.log = logging.getLogger('register')
+        self.log.debug('initiliaize R%02d -> 0x%04x' % (self.regnum, reg))
 
     def set(self, value, bytemode=0, am=0):
         """write value to register"""
-        if self.log: self.log.info('REGSTR: write    0x%04x -> R%02d mode:%s\n' % (value, self.regnum, bytemode and 'b' or 'w'))
+        self.log.debug('write 0x%04x -> R%02d mode:%s' % (value, self.regnum, bytemode and 'b' or 'w'))
         self.reg = value & (bytemode and 0xff or 0xffff)
         self.notify()
 
     def get(self, bytemode=0, am=0):
         """read register"""
         value = self.reg & (bytemode and 0xff or 0xffff)
-        if self.log: self.log.info('REGSTR: read     R%02d -> 0x%04x mode:%s\n' % (self.regnum, value, bytemode and 'b' or 'w'))
+        self.log.debug('read R%02d -> 0x%04x mode:%s' % (self.regnum, value, bytemode and 'b' or 'w'))
         return value
     
     def __getitem__(self,index):
@@ -113,10 +114,14 @@ class Register(Subject):
 #programm counter
 class PC(Register):
     """Program counter"""
+    
+    def __init__(self, core, reg=0):
+        Register.__init__(self, core, reg=reg, regnum=0)
+
     def next(self):
         value = self.core.memory.get(bytemode=0, address=self.reg)
         self.set( self.get() + 2)
-        if self.log: self.log.info('REGSTR: next @PC, PC+\n')
+        if self.log: self.log.debug('next @PC, PC+')
         return value
 
     def __repr__(self):
@@ -129,16 +134,20 @@ class PC(Register):
 
 class SP(Register):
     """Stack pointer"""
+    
+    def __init__(self, core, reg=0):
+        Register.__init__(self, core, reg=reg, regnum=1)
+            
     def push(self,value):
         self.reg -= 2
-        if self.log: self.log.info('REGSTR: push @-SP,      0x%04x\n' % (value))
+        if self.log: self.log.debug('push @-SP, 0x%04x' % (value))
         self.core.memory.set(bytemode=0, address=self.reg, value=value)
         self.notify()
     
     def pop(self):
         value = self.core.memory.get(bytemode=0, address=self.reg)
         self.reg += 2
-        if self.log: self.log.info('REGSTR: pop  @SP+       0x%04x\n' % (value))
+        if self.log: self.log.debug('pop @SP+ -> 0x%04x' % (value))
         self.notify()
         return value
 
@@ -153,6 +162,9 @@ class SP(Register):
 class SR(Register):
     """SR combined with Constant Generator Register 1"""
     consts = (None,None,4,8)
+
+    def __init__(self, core, reg=0):
+        Register.__init__(self, core, reg=reg, regnum=2)
 
     bits = {
         'C':      0x0001,
@@ -188,7 +200,7 @@ class SR(Register):
     def get(self, bytemode=0, am=0):
         if am == 0: return self.reg & (bytemode and 0xff or 0xffff)
         value = self.consts[am] & (bytemode and 0xff or 0xffff)
-        if self.log: self.log.info('REGSTR: read     R%02d -> 0x%04x mode:%s\n' % (self.regnum, value, bytemode and 'b' or 'w'))
+        if self.log: self.log.debug('REGSTR: read     R%02d -> 0x%04x mode:%s' % (self.regnum, value, bytemode and 'b' or 'w'))
         return value
 
     def __repr__(self):
@@ -207,9 +219,12 @@ class CG2(Register):
     """Constant Generator Register 2"""
     consts = (0,1,2,0xffff)
 
+    def __init__(self, core, reg=0):
+        Register.__init__(self, core, reg=reg, regnum=3)
+
     def get(self, bytemode=0, am=0):
         value = self.consts[am] & (bytemode and 0xff or 0xffff)
-        if self.log: self.log.info('REGSTR: read     R%02d -> 0x%04x mode:%s\n' % (self.regnum, value, bytemode and 'b' or 'w'))
+        if self.log: self.log.debug('read R%02d -> 0x%04x mode:%s' % (self.regnum, value, bytemode and 'b' or 'w'))
         return value
 
     def __repr__(self):
@@ -223,8 +238,8 @@ class CG2(Register):
 ##################################################################
 class Peripheral:
     color = (0x33, 0x33, 0x33)      #color for graphical representation
-    def __init__(self, log):
-        self.log = log
+    def __init__(self):
+        self.log = logging.getLogger('peripheral')
         self.reset()        #init device
 
     def __contains__(self, address):
@@ -247,10 +262,11 @@ class Flash(Peripheral):
     """flash memory"""
     color = (0xff, 0xaa, 0x88)      #color for graphical representation
 
-    def __init__(self, log, startaddress = 0xf000, endaddress = 0xffff):
+    def __init__(self, startaddress = 0xf000, endaddress = 0xffff):
         self.startaddress = startaddress
         self.endaddress = endaddress
-        Peripheral.__init__(self, log)  #calls self.reset()
+        Peripheral.__init__(self)  #calls self.reset()
+        self.log = logging.getLogger('flash')
     
     def __contains__(self, address):
         """return true if address is handled by this peripheral"""
@@ -282,10 +298,11 @@ class RAM(Peripheral):
     """RAM memory"""
     color = (0xaa, 0xff, 0x88)      #color for graphical representation
 
-    def __init__(self, log, startaddress = 0x0200, endaddress = 0x02ff):
+    def __init__(self, startaddress = 0x0200, endaddress = 0x02ff):
         self.startaddress = startaddress
         self.endaddress = endaddress
-        Peripheral.__init__(self, log)  #calls self.reset()
+        Peripheral.__init__(self)  #calls self.reset()
+        self.log = logging.getLogger('RAM')
     
     def __contains__(self, address):
         """return true if address is handled by this peripheral"""
@@ -437,22 +454,22 @@ class ExtendedPorts(Peripheral):
     def set(self, address, value, bytemode=0):
         """write value to address"""
         if not bytemode and self.log:
-            self.log.info('PERIPH: Access Error - expected byte but got word access\n')
+            self.log.error('PERIPH: Access Error - expected byte but got word access')
         self.values[address] = value & 0xff
 
     def get(self, address, bytemode=0):
         """read from address"""
         if not bytemode and self.log:
-            self.log.info('PERIPH: Access Error - expected byte but got word access\n')
+            self.log.error('PERIPH: Access Error - expected byte but got word access')
         return self.values[address]
 
 
 class Memory(Subject):
 #    color = (0xaa, 0xaa, 0xaa)      #color for graphical representation
     color = (0xff, 0xff, 0xff)      #color for graphical representation
-    def __init__(self, log=None):
+    def __init__(self):
         Subject.__init__(self)          #init model for observer pattern
-        self.log = log
+        self.log = logging.getLogger('memory')
         self.setwatches = {}        #serached on reads
         self.getwatches = {}        #serached on writes
         self.accesswatches = []     #searched allways
@@ -475,8 +492,8 @@ class Memory(Subject):
         self.notify()
 
     def load(self, filename):
-        "fill memory with the contents of a file. file type is determined from extension"
-        self.log.info('MEMORY: loading file %s\n' % filename)
+        """fill memory with the contents of a file. file type is determined from extension"""
+        self.log.info('loading file %s' % filename)
         if filename[-4:].lower() == '.txt':
             self.loadTIText(open(filename, "r"))
         else:
@@ -486,7 +503,7 @@ class Memory(Subject):
         """load data from a (opened) file in Intel-HEX format"""
         for l in file.readlines():
             if l[0] != ':':
-                raise "file format error"
+                raise IOError("file format error")
             l = l.strip()       #fix CR-LF issues...
             count    = int(l[1:3],16)
             address  = int(l[3:7],16)
@@ -540,7 +557,7 @@ class Memory(Subject):
 
     def set(self, address, value, bytemode=0):
         """write value to address"""
-        self.log.info('MEMORY: write 0x%04x <- 0x%04x mode:%s' % (address, value, bytemode and 'b' or 'w'))
+        self.log.debug('write 0x%04x <- 0x%04x mode:%s' % (address, value, bytemode and 'b' or 'w'))
         if self.setwatches.has_key(address): self.setwatches[address](address, bytemode, self.memory[address], value)  #call watch
         for a in self.accesswatches: a(self, bytemode, 1, address)
         self._set(address, value, bytemode)
@@ -564,7 +581,7 @@ class Memory(Subject):
         if self.getwatches.has_key(address): self.getwatches[address](address, bytemode, self.memory[address], None)  #call watch
         for a in self.accesswatches: a(self, bytemode, 0, address)
         value = self._get(address, bytemode)
-        self.log.info('MEMORY: read  0x%04x -> 0x%04x mode:%s' % (address, value, bytemode and 'b' or 'w'))
+        self.log.debug('read 0x%04x -> 0x%04x mode:%s' % (address, value, bytemode and 'b' or 'w'))
         return value
 
     def hexline(self, address, width=16):
@@ -584,7 +601,7 @@ class Memory(Subject):
         while (toadr is not None and adr < toadr+1) or (toadr is None) and len(res) < lines:
             res.append('%s  %s %s' % (self.hexline(adr)))
             adr += 16
-        return res
+        return '\n'.join(res)
 
 ##################################################################
 ## argument wrappers
@@ -1026,28 +1043,28 @@ class Core(Subject):
     # methods
     #------------------------
 
-    def __init__(self, log=None):
+    def __init__(self):
         """initialize core with registers and memory"""
         Subject.__init__(self)          #init model for observer pattern
-        self.log = log #logging.getLogger('msp430 core')
-        self.memory = Memory(log)
+        self.log = logging.getLogger('core')
+        self.memory = Memory()
         self.R = (
-            PC(self, regnum=0, log=log),
-            SP(self, regnum=1, log=log),
-            SR(self, regnum=2, log=log),
-            CG2(self, regnum=3, log=log),
-            Register(self, regnum=4, log=log),
-            Register(self, regnum=5, log=log),
-            Register(self, regnum=6, log=log),
-            Register(self, regnum=7, log=log),
-            Register(self, regnum=8, log=log),
-            Register(self, regnum=9, log=log),
-            Register(self, regnum=10, log=log),
-            Register(self, regnum=11, log=log),
-            Register(self, regnum=12, log=log),
-            Register(self, regnum=13, log=log),
-            Register(self, regnum=14, log=log),
-            Register(self, regnum=15, log=log)
+            PC(self),
+            SP(self),
+            SR(self),
+            CG2(self),
+            Register(self, regnum=4),
+            Register(self, regnum=5),
+            Register(self, regnum=6),
+            Register(self, regnum=7),
+            Register(self, regnum=8),
+            Register(self, regnum=9),
+            Register(self, regnum=10),
+            Register(self, regnum=11),
+            Register(self, regnum=12),
+            Register(self, regnum=13),
+            Register(self, regnum=14),
+            Register(self, regnum=15)
         )
         #alisses
         self.PC = self.R[0]
@@ -1124,7 +1141,7 @@ class Core(Subject):
             ', '.join(map(str,args[1:])),
             cycles
         )
-        self.log.info('step: %s' % (note))
+        self.log.debug('step: %s' % (note,))
         if execfu:
             apply(execfu, [self]+args)
         else:
@@ -1140,18 +1157,18 @@ class Core(Subject):
 ##################################################################
 
 class Tracer:
-    def __init__(self, core, log):
+    def __init__(self, core):
         self.core = core
-        self.log = log
+        self.log = logging.getLogger('trace')
 
     def start(self, startadr, maxsteps=100):
-        self.log.info( 'TRACER: set startaddress\n')
+        self.log.info('set startaddress')
         self.core.PC.set(startadr)
-        self.log.info( 'TRACER: *** starting trace (maxsteps=%d)\n' % (maxsteps))
+        self.log.info('*** starting trace (maxsteps=%d)' % (maxsteps))
         step = 1
         while step <= maxsteps:
             self.core.step()
-            self.log.info( 'TRACER: (step %d, cycle %d)\n%r\n' % (
+            self.log.info('step %d, cycle %d\n%r' % (
                 step, self.core.cycles, self.core))
             step += 1
 
@@ -1160,16 +1177,16 @@ class Tracer:
 ##################################################################
 
 if __name__ == '__main__':
-    logging.basicConfig()
+    logging.basicConfig(level=logging.DEBUG)
     log = logging.getLogger('trace')
     
-    core = Core(log)
+    core = Core()
     core.SR.Z = 243
     print core.SR.Z
     print repr(core.SR)
 
     #~ core.memory.load('tests.a43')
-    #~ core.memory.load('../exmaples/leds/leds.a43')
+    core.memory.load('../examples/leds/leds.a43')
     
     #~ print "-"*40, "memory dump"
     #~ print '\n'.join(core.memory.hexdump(0xF000, 0xF086))
@@ -1186,10 +1203,9 @@ if __name__ == '__main__':
 ##        print repr(core)
 
     print "-"*40, "trace"
-    core.memory.getwatches[0x200] = AddressWatch(log, "Variable one READ")
-    core.memory.setwatches[0x200] = AddressWatch(log, "Variable one WRITE")
+    core.memory.getwatches[0x200] = AddressWatch("Variable one READ")
+    core.memory.setwatches[0x200] = AddressWatch("Variable one WRITE")
     core.memory.accesswatches.append(MemoryAccessWatch(
-        log,
         lambda mem, wrt, adr: not(          #F1121 layout
             0x0000 <= adr <= 0x01ff or      #Peripherals (not detailed)
             0x0200 <= adr <= 0x02ff or      #RAM
@@ -1199,17 +1215,17 @@ if __name__ == '__main__':
         'Illegal memory access',
     ))
     core.memory.accesswatches.append(MemoryAccessWatch(
-        log,
         lambda mem, wrt, adr: wrt and(      #F1121 layout
             0x1000 <= adr <= 0x10ff or      #INFOMEM
             0xf000 <= adr <= 0xffff         #FLASH
         ),
         'flash memory written',
     ))
-    core.memory.hexdump(0x0200, 0x02ff, log)
-    tracer = Tracer(core, log)
+    print core.memory.hexdump(0x0200, 0x02ff, log)
+    tracer = Tracer(core)
     tracer.start(0xf000, 43) #only N steps
-    core.memory.hexdump(0x0200, 0x02ff, log)
+    print "-"*40, "end"
+    print core.memory.hexdump(0x0200, 0x02ff, log)
 
 
 
