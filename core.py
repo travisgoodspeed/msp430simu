@@ -1,4 +1,12 @@
 #!/usr/bin/env python
+#
+# MSP430 simulator core.
+#
+# (C) 2002-2004 Chris Liechti <cliechti@gmx.net>
+# this is distributed under a free software license, see license.txt
+#
+# $Id: core.py,v 1.17 2005/12/30 00:19:10 cliechti Exp $
+
 import sys
 import logging
 
@@ -544,6 +552,7 @@ class Memory(Subject):
 
     def _set(self, address, value, bytemode=0):
         """quiet set without logging"""
+        address &= 0xffff       #16 bit wrap around
         for p in self.peripherals:
             if address in p:
                 p.set(address, value, bytemode)
@@ -557,6 +566,9 @@ class Memory(Subject):
 
     def set(self, address, value, bytemode=0):
         """write value to address"""
+        if address > 0xffff:
+            self.log.error('write outside valid address range (0x%04x)' % (address, ))
+            address &= 0xffff       #16 bit wrap around
         self.log.debug('write 0x%04x <- 0x%04x mode:%s' % (address, value, bytemode and 'b' or 'w'))
         if self.setwatches.has_key(address): self.setwatches[address](address, bytemode, self.memory[address], value)  #call watch
         for a in self.accesswatches: a(self, bytemode, 1, address)
@@ -565,6 +577,7 @@ class Memory(Subject):
 
     def _get(self, address, bytemode=0):
         """quiet get without logging"""
+        address &= 0xffff       #16 bit wrap around
         for p in self.peripherals:
             if address in p:
                 value = p.get(address, bytemode)
@@ -578,11 +591,21 @@ class Memory(Subject):
 
     def get(self, address, bytemode=0):
         """read value from address"""
+        if address > 0xffff:
+            self.log.error('read outside valid address range (0x%04x)' % (address, ))
+            address &= 0xffff       #16 bit wrap around
         if self.getwatches.has_key(address): self.getwatches[address](address, bytemode, self.memory[address], None)  #call watch
         for a in self.accesswatches: a(self, bytemode, 0, address)
         value = self._get(address, bytemode)
         self.log.debug('read 0x%04x -> 0x%04x mode:%s' % (address, value, bytemode and 'b' or 'w'))
         return value
+
+    def read(self, address, length):
+        return ''.join([chr(self._get(a,1)) for a in range(address, address+length)])
+
+    def write(self, address, data):
+        for n, byte in enumerate(data):
+            self._set(address+n, ord(byte), 1)
 
     def hexline(self, address, width=16):
         """build a tuple with (address, hex values, ascii values)"""
