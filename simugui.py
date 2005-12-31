@@ -1,4 +1,11 @@
 #!/usr/bin/env python
+#
+# Simple GUI for the simulator with memory view and disassembler.
+#
+# (C) 2002-2004 Chris Liechti <cliechti@gmx.net>
+# this is distributed under a free software license, see license.txt
+#
+# $Id: simugui.py,v 1.13 2005/12/31 00:25:06 cliechti Exp $
 
 #import all of the wxPython GUI package
 from wxPython.wx import *
@@ -618,8 +625,9 @@ class CoreFrame(wxFrame, core.Observer):
 
 #application....
 if __name__ == '__main__':
-    #~ import logging
+    import logging
     #~ logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     
     # Every wxWindows application must have a class derived from wxApp
     class MyApp(wxApp):

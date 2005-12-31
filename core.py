@@ -5,7 +5,7 @@
 # (C) 2002-2004 Chris Liechti <cliechti@gmx.net>
 # this is distributed under a free software license, see license.txt
 #
-# $Id: core.py,v 1.17 2005/12/30 00:19:10 cliechti Exp $
+# $Id: core.py,v 1.18 2005/12/31 00:25:06 cliechti Exp $
 
 import sys
 import logging
@@ -49,17 +49,17 @@ class AddressWatch:
         self.log = logging.getLogger('watch')
         self.description = description
 
-    def __call__(self, address, bytemode, oldvalue, newvalue):
-        if newvalue:    #for writes
+    def __call__(self, address, bytemode, oldvalue, newvalue=None):
+        if newvalue is not None:    #for writes
             self.log.info(
-                ('WATCHr: @0x%%04x: 0x%%0%dx -> 0x%%0%dx: %%s\n' % (
+                ('write: @0x%%04x: 0x%%0%dx -> 0x%%0%dx: %%s' % (
                     bytemode and 2 or 4, bytemode and 2 or 4)
                 ) % (
                     address, oldvalue, newvalue, self.description
                 ))
         else:           #for reads
             self.log.info(
-                ('WATCHr: @0x%%04x: 0x%%0%dx: %%s\n' % (
+                ('read: @0x%%04x: 0x%%0%dx: %%s' % (
                     bytemode and 2 or 4)
                 ) % (
                     address, oldvalue, self.description
@@ -73,7 +73,7 @@ class MemoryAccessWatch:
 
     def __call__(self, memory, bytemode, writing, address):
         if self.condition_fu(memory, writing, address):
-            self.log.info('WATCHx: @0x%04x: %s %s\n' % (
+            self.log.info('access: @0x%04x: %s %s' % (
                 address, bytemode and 'b' or 'w', self.description
             ))
 
@@ -402,7 +402,7 @@ class Multiplier(Peripheral):
             if self.mode == self.MUL:
                 self.acc = r
                 self.sumext = 0
-            if self.mode == self.SIGNEDMUL:
+            elif self.mode == self.SIGNEDMUL:
                 if self.op1 < 0:    r = -r
                 if self.op2 < 0:    r = -r
                 self.acc = r
@@ -410,13 +410,13 @@ class Multiplier(Peripheral):
                     self.sumext = 0xffff
                 else:
                     self.sumext = 0
-            if self.mode == self.MULANDACCUM:
+            elif self.mode == self.MULANDACCUM:
                 self.acc += r
                 if self.acc > 0xffffffffL:
                     self.sumext = 0x0001
                 else:
                     self.sumext = 0
-            if self.mode == self.SIGNEDMULANDACCUM:
+            elif self.mode == self.SIGNEDMULANDACCUM:
                 if self.op1 < 0:    r = -r
                 if self.op2 < 0:    r = -r
                 self.acc += r
@@ -424,16 +424,20 @@ class Multiplier(Peripheral):
                     self.sumext = 0xffff
                 else:
                     self.sumext = 0
-            #TODO: broken!!
+            else:
+                raise ValueError('invalid internal state %s' % self.mode)
+            #XXX TODO: broken!!
         elif address == 0x13a:    #ResLo/acc
             self.acc = (self.acc & 0xffff0000L) | value
         elif address == 0x13c:    #ResHi/acc
             self.acc = (self.acc & 0x0000ffff) | (value<<16)
         elif address == 0x13e:    #SumExt
-            pass #readonly  #TODO: log
+            self.log.error('Access Error - SUMEXT is read only')
 
     def get(self, address, bytemode=0):
         """read from address"""
+        if bytemode:
+            self.log.error('Access Error - byte access not allowed')
         if address == 0x130:    value = self.mpy
         elif address == 0x132:  value = self.mpys
         elif address == 0x134:  value = self.mac
@@ -461,14 +465,14 @@ class ExtendedPorts(Peripheral):
 
     def set(self, address, value, bytemode=0):
         """write value to address"""
-        if not bytemode and self.log:
-            self.log.error('PERIPH: Access Error - expected byte but got word access')
+        if not bytemode:
+            self.log.error('Access Error - expected byte but got word access')
         self.values[address] = value & 0xff
 
     def get(self, address, bytemode=0):
         """read from address"""
-        if not bytemode and self.log:
-            self.log.error('PERIPH: Access Error - expected byte but got word access')
+        if not bytemode:
+            self.log.error('Access Error - expected byte but got word access')
         return self.values[address]
 
 
@@ -501,7 +505,7 @@ class Memory(Subject):
 
     def load(self, filename):
         """fill memory with the contents of a file. file type is determined from extension"""
-        self.log.info('loading file %s' % filename)
+        self.log.info('loading file %r' % filename)
         if filename[-4:].lower() == '.txt':
             self.loadTIText(open(filename, "r"))
         else:
@@ -567,7 +571,7 @@ class Memory(Subject):
     def set(self, address, value, bytemode=0):
         """write value to address"""
         if address > 0xffff:
-            self.log.error('write outside valid address range (0x%04x)' % (address, ))
+            self.log.error('write outside valid of address range (0x%04x)' % (address, ))
             address &= 0xffff       #16 bit wrap around
         self.log.debug('write 0x%04x <- 0x%04x mode:%s' % (address, value, bytemode and 'b' or 'w'))
         if self.setwatches.has_key(address): self.setwatches[address](address, bytemode, self.memory[address], value)  #call watch
@@ -592,7 +596,7 @@ class Memory(Subject):
     def get(self, address, bytemode=0):
         """read value from address"""
         if address > 0xffff:
-            self.log.error('read outside valid address range (0x%04x)' % (address, ))
+            self.log.error('read outside of valid address range (0x%04x)' % (address, ))
             address &= 0xffff       #16 bit wrap around
         if self.getwatches.has_key(address): self.getwatches[address](address, bytemode, self.memory[address], None)  #call watch
         for a in self.accesswatches: a(self, bytemode, 0, address)
@@ -834,6 +838,9 @@ def addressMode(core, pc, bytemode, as = None, ad = None, src = None, dest = Non
 ## CORE (CPU with Regs, Mem, insn)
 ##################################################################
 
+class MSP430CoreException(Exception):
+    """this exception is raised when code execution errors are detected"""
+    
 class Core(Subject):
     """CPU core with registers, memory and code execution logic"""
 
@@ -858,7 +865,7 @@ class Core(Subject):
 
     def execSWPB(self, bytemode, arg):
         if bytemode:
-            raise "illegal insn"
+            raise MSP430CoreException("illegal use of SWPB")
         a = arg.get()
         r = ((a & 0xff00) >> 8) | ((a & 0x00ff) << 8)
         arg.set(r)
@@ -874,7 +881,7 @@ class Core(Subject):
         arg.set(r)
 
     def execSXT(self, bytemode, arg):
-        if bytemode: raise "illegal use of SXT" #should actualy never happen
+        if bytemode: raise MSP430CoreException("illegal use of SXT") #should actualy never happen
         a = arg.get()
         r = a & 0xff
         if a & 0x80:  r |= 0xff00
@@ -943,7 +950,8 @@ class Core(Subject):
         if store: dst.set(r)
 
     def execDADD(self, bytemode, src, dst):
-        raise "instruction not supported in this version of simu"
+        #XXX implement this one
+        raise NotImplementedError("instruction not supported in this version of simu")
 
     def execBIT(self, bytemode, src, dst):
         d = dst.get()
@@ -1089,7 +1097,7 @@ class Core(Subject):
             Register(self, regnum=14),
             Register(self, regnum=15)
         )
-        #alisses
+        #aliases
         self.PC = self.R[0]
         self.SP = self.R[1]
         self.SR = self.R[2]
@@ -1168,7 +1176,7 @@ class Core(Subject):
         if execfu:
             apply(execfu, [self]+args)
         else:
-            self.log.warning("%s @0x%02x" % (name, address))
+            self.log.warning("%s @0x%04x" % (name, address))
         self.notify()
         return note
 

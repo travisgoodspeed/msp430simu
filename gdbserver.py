@@ -7,7 +7,7 @@
 # (C) 2002-2004 Chris Liechti <cliechti@gmx.net>
 # this is distributed under a free software license, see license.txt
 #
-# $Id: gdbserver.py,v 1.1 2005/12/30 00:19:10 cliechti Exp $
+# $Id: gdbserver.py,v 1.2 2005/12/31 00:25:06 cliechti Exp $
 
 import sys, socket, threading, binascii
 import Queue
@@ -114,10 +114,12 @@ class GDBClientHandler(threading.Thread):
         self.setDaemon(1)
         self.core = core
         self.log = logging.getLogger("gdbclient")
+        self.alive = True
         self.runner = BreakpointRunner(core)
         self.runner.start()
 
     def close(self):
+        self.alive = False
         self.log.info("closing...")
         self.netin.close()
         self.netout.close()
@@ -131,7 +133,7 @@ class GDBClientHandler(threading.Thread):
     def run(self):
         try:
             self.log.info("client loop ready...")
-            while 1:
+            while self.alive:
                 try:
                     pkt = self.readPacket()
                     self.log.debug('processing remote command %r' % pkt)
@@ -186,16 +188,23 @@ class GDBClientHandler(threading.Thread):
                         if pkt[1:5] == "Rcmd":
                             cmd = binascii.unhexlify(pkt.split(',')[1]).strip()
                             self.log.info("monitor command: %r" % cmd)
-                            if cmd[0:1] == '"': #its a string, execute python code !Security risk!
-                                ans = eval(cmd[1:-1])
-                                self.writePacket(binascii.hexlify(repr(ans)))
-                            #~ elif cmd == 'erase':
-                                #~ print "Erasing the device MAIN memory..."
-                                #~ self.writePacket("OK")
+                            if ' ' in cmd:
+                                command, args = cmd.split(None, 1)
                             else:
-                                self.writePacket("E01")
+                                command = cmd
+                                args = ''
+                            method_name = 'monitor_%s' % command
+                            if hasattr(self, method_name):
+                                try:
+                                    getattr(self, method_name)(args)
+                                except:
+                                    self.log.exception('error in monitor command')
+                                    self.writePacket("E03")
+                            else:
+                                self.log.warning('no such monitor command ("%s")' % command)
+                                self.writePacket("E02")
                         else:
-                            self.writePacket("E01") #write error
+                            self.writePacket("E01") #commond not known
                     elif pkt[0] == "s":     #single step
                         if len(pkt) > 1:
                             adr = int(pkt[1:],16)
@@ -255,6 +264,49 @@ class GDBClientHandler(threading.Thread):
         self.log.debug("writePacket(%r)" % msg)
         self.netout.write("$%s#%02x" % (msg, checksum(msg)))
         self.netout.flush()
+
+    def writeMessage(self, msg):
+        self.writePacket("O%s" % binascii.hexlify(msg))
+
+    # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    
+    def monitor_help(self, args):
+        """monitor commands help"""
+        self.writeMessage("Supported commands are:\n")
+        for name in dir(self):
+            if name.startswith('monitor_'):
+                self.writeMessage("%-10s: %s\n" % (name[8:], getattr(self, name).__doc__))
+        self.writePacket("OK")
+        
+    #~ def monitor_eval(self, args):
+        #~ """evaluate python expression !Security risk!"""
+        #~ ans = eval(args)
+        #~ self.writeMessage("%r\n" % (ans,))
+        #~ self.writePacket("OK")
+    
+    def monitor_erase(self, args):
+        """erase flash"""
+        self.log.info('monitor: Erasing Flash ("%s")...' % args)
+        #~ if args == 'main':
+        #~ elif args == 'info':
+        #~ elif args in ('', 'all'):
+        #~ else: #accept "address size"
+        self.writePacket("OK")
+
+    def monitor_puc(self, args):
+        """reset target"""
+        self.core.reset()
+        self.writePacket("OK")
+        
+    def monitor_reset(self, args):
+        """reset target"""
+        self.core.reset()
+        self.writePacket("OK")
+
+    def monitor_vcc(self, args):
+        """set adapter VCC, ignored. here to be compatible with the real gdbproxy"""
+        self.writePacket("OK")
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
