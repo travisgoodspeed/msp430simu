@@ -5,10 +5,17 @@
 # (C) 2002-2004 Chris Liechti <cliechti@gmx.net>
 # this is distributed under a free software license, see license.txt
 #
-# $Id: core.py,v 1.18 2005/12/31 00:25:06 cliechti Exp $
+# $Id: core.py,v 1.19 2005/12/31 04:27:36 cliechti Exp $
 
 import sys
 import logging
+
+try:
+    import psyco
+except ImportError:
+    pass
+else:
+    psyco.full()
 
 ##################################################################
 ## Observer Pattern
@@ -83,37 +90,37 @@ class MemoryAccessWatch:
 
 class Register(Subject):
     """generic register"""
-    def __init__(self, core, reg=0, regnum=None):
+    def __init__(self, core, value=0, regnum=None):
         Subject.__init__(self)          #init model for observer pattern
         self.core = core
-        self.reg = reg
+        self.value = value
         self.regnum = regnum
         self.log = logging.getLogger('register')
-        self.log.debug('initiliaize R%02d -> 0x%04x' % (self.regnum, reg))
+        self.log.debug('initiliaize R%02d -> 0x%04x' % (self.regnum, value))
 
     def set(self, value, bytemode=0, am=0):
         """write value to register"""
         self.log.debug('write 0x%04x -> R%02d mode:%s' % (value, self.regnum, bytemode and 'b' or 'w'))
-        self.reg = value & (bytemode and 0xff or 0xffff)
+        self.value = value & (bytemode and 0xff or 0xffff)
         self.notify()
 
     def get(self, bytemode=0, am=0):
         """read register"""
-        value = self.reg & (bytemode and 0xff or 0xffff)
+        value = self.value & (bytemode and 0xff or 0xffff)
         self.log.debug('read R%02d -> 0x%04x mode:%s' % (self.regnum, value, bytemode and 'b' or 'w'))
         return value
     
-    def __getitem__(self,index):
+    def __getitem__(self, index):
         """indexed memory access"""
-        return self.core.memory.get(bytemode=0, address=self.reg+index)
+        return self.core.memory.get(bytemode=0, address=self.value+index)
 
     def __int__(self):
         """return value of register as number"""
-        return self.reg
+        return self.value
 
     def __repr__(self):
         """return register name and contents"""
-        return "R%02d = 0x%04x" % (self.regnum, self.reg)
+        return "R%02d = 0x%04x" % (self.regnum, self.value)
 
     def __str__(self):
         """return register name"""
@@ -123,45 +130,51 @@ class Register(Subject):
 class PC(Register):
     """Program counter"""
     
-    def __init__(self, core, reg=0):
-        Register.__init__(self, core, reg=reg, regnum=0)
+    def __init__(self, core, value=0):
+        Register.__init__(self, core, value, regnum=0)
 
     def next(self):
-        value = self.core.memory.get(bytemode=0, address=self.reg)
-        self.set( self.get() + 2)
-        if self.log: self.log.debug('next @PC, PC+')
+        """fetch a value and advance one word"""
+        if self.log: self.log.debug('next @PC+')
+        value = self.core.memory.get(bytemode=0, address=self.value)
+        self.set(self.value + 2)
         return value
 
     def __repr__(self):
         """return register name and contents"""
-        return "PC  = 0x%04x" % (self.reg)
+        return "PC  = 0x%04x" % (self.value)
 
     def __str__(self):
         return "PC"
+    
+    def __iadd__(self, other):
+        """inplace add (+=)"""
+        self.set(self.value + int(other))
+        return self
 
 
 class SP(Register):
     """Stack pointer"""
     
-    def __init__(self, core, reg=0):
-        Register.__init__(self, core, reg=reg, regnum=1)
-            
-    def push(self,value):
-        self.reg -= 2
-        if self.log: self.log.debug('push @-SP, 0x%04x' % (value))
-        self.core.memory.set(bytemode=0, address=self.reg, value=value)
+    def __init__(self, core, value=0):
+        Register.__init__(self, core, value, regnum=1)
+    
+    def push(self, value):
+        self.set(self.value - 2)
+        self.log.debug('push @-SP, 0x%04x' % (value))
+        self.core.memory.set(bytemode=0, address=self.value, value=value)
         self.notify()
     
     def pop(self):
-        value = self.core.memory.get(bytemode=0, address=self.reg)
-        self.reg += 2
-        if self.log: self.log.debug('pop @SP+ -> 0x%04x' % (value))
+        value = self.core.memory.get(bytemode=0, address=self.value)
+        self.set(self.value + 2)
+        self.log.debug('pop @SP+ -> 0x%04x' % (value))
         self.notify()
         return value
 
     def __repr__(self):
         """return register name and contents"""
-        return "SP  = 0x%04x" % (self.reg)
+        return "SP  = 0x%04x" % (self.value)
     
     def __str__(self):
         return "SP"
@@ -171,8 +184,8 @@ class SR(Register):
     """SR combined with Constant Generator Register 1"""
     consts = (None,None,4,8)
 
-    def __init__(self, core, reg=0):
-        Register.__init__(self, core, reg=reg, regnum=2)
+    def __init__(self, core, value=0):
+        Register.__init__(self, core, value, regnum=2)
 
     bits = {
         'C':      0x0001,
@@ -189,7 +202,7 @@ class SR(Register):
     def __getattr__(self, name):
         if self.bits.has_key(name):
             mask = self.bits[name]
-            return (self.reg & mask) != 0
+            return (self.value & mask) != 0
         else:
             return self.__dict__[name]
 
@@ -197,26 +210,26 @@ class SR(Register):
         if self.bits.has_key(name):
             mask = self.bits[name]
             if value:
-                self.reg  |= mask
+                self.value  |= mask
             else:
-                self.reg  &= ~mask
+                self.value  &= ~mask
             self.notify()
         else:
             self.__dict__[name] = value
 
     #custom get for CG1
     def get(self, bytemode=0, am=0):
-        if am == 0: return self.reg & (bytemode and 0xff or 0xffff)
+        if am == 0: return self.value & (bytemode and 0xff or 0xffff)
         value = self.consts[am] & (bytemode and 0xff or 0xffff)
-        if self.log: self.log.debug('REGSTR: read     R%02d -> 0x%04x mode:%s' % (self.regnum, value, bytemode and 'b' or 'w'))
+        self.log.debug('REGSTR: read     R%02d -> 0x%04x mode:%s' % (self.regnum, value, bytemode and 'b' or 'w'))
         return value
 
     def __repr__(self):
         """return register name and contents"""
-        res = "SR  = 0x%04x " % (self.reg)
+        res = "SR  = 0x%04x " % (self.value)
         #then append deatiled bit display
         for key in ('C', 'Z', 'N', 'V', 'GIE'):
-            res += '%s:%s ' % (key, (self.reg & self.bits[key]) and '1' or '0')
+            res += '%s:%s ' % (key, (self.value & self.bits[key]) and '1' or '0')
         return res
 
     def __str__(self):
@@ -227,12 +240,12 @@ class CG2(Register):
     """Constant Generator Register 2"""
     consts = (0,1,2,0xffff)
 
-    def __init__(self, core, reg=0):
-        Register.__init__(self, core, reg=reg, regnum=3)
+    def __init__(self, core, value=0):
+        Register.__init__(self, core, value, regnum=3)
 
     def get(self, bytemode=0, am=0):
         value = self.consts[am] & (bytemode and 0xff or 0xffff)
-        if self.log: self.log.debug('read R%02d -> 0x%04x mode:%s' % (self.regnum, value, bytemode and 'b' or 'w'))
+        self.log.debug('read R%02d -> 0x%04x mode:%s' % (self.regnum, value, bytemode and 'b' or 'w'))
         return value
 
     def __repr__(self):
@@ -276,30 +289,43 @@ class Flash(Peripheral):
         Peripheral.__init__(self)  #calls self.reset()
         self.log = logging.getLogger('flash')
     
+    FCTL1 = 0x0128
+    FCTL2 = 0x012a
+    FCTL3 = 0x012c
+    #~ INFO_START = 0x1000
+    #~ INFO_END   = 0x10ff
+
     def __contains__(self, address):
         """return true if address is handled by this peripheral"""
-        return self.startaddress <= address <= self.endaddress
+        return self.startaddress <= address <= self.endaddress \
+            or self.FCTL1 <= address <= self.FCTL3+1
 
     def reset(self):
         """perform a power up reset"""
-        self.values = [0xff] * (self.endaddress - self.startaddress + 1)
+        #~ self.values = [0xff] * (self.endaddress - self.startaddress + 1)
 
     def set(self, address, value, bytemode=0):
         """write value to address"""
-        if bytemode:
-            self.values[address-self.startaddress] = value & 0xff
+        if self.FCTL1 <= address <= self.FCTL3+1:
+            pass #xxx handle flas write/erase etc
         else:
-            self.values[(address-self.startaddress & 0xfffe)  ] =  value     & 0xff
-            self.values[(address-self.startaddress & 0xfffe)+1] = (value>>8) & 0xff
+            if bytemode:
+                self.values[address-self.startaddress] = value & 0xff
+            else:
+                self.values[(address-self.startaddress & 0xfffe)  ] =  value     & 0xff
+                self.values[(address-self.startaddress & 0xfffe)+1] = (value>>8) & 0xff
 
     def get(self, address, bytemode=0):
         """read from address"""
-        if bytemode:
-            value = self.values[address-self.startaddress]
+        if self.FCTL1 <= address <= self.FCTL3+1:
+            value = 0
         else:
-            #word reads are allways on even addresses...
-            value = (self.values[(address-self.startaddress & 0xfffe)+1]<<8) |\
-                     self.values[(address-self.startaddress & 0xfffe)]
+            if bytemode:
+                value = self.values[address-self.startaddress]
+            else:
+                #word reads are allways on even addresses...
+                value = (self.values[(address-self.startaddress & 0xfffe)+1]<<8) |\
+                         self.values[(address-self.startaddress & 0xfffe)]
         return value
 
 class RAM(Peripheral):
@@ -318,7 +344,7 @@ class RAM(Peripheral):
 
     def reset(self):
         """perform a power up reset"""
-        self.values = [0] * (self.endaddress - self.startaddress + 1)
+        #~ self.values = [0] * (self.endaddress - self.startaddress + 1)
 
     def set(self, address, value, bytemode=0):
         """write value to address"""
@@ -709,7 +735,7 @@ class IndirectAutoincrementRegisterArgument(Argument):
         return res
 
     def set(self, value):
-        raise "not possible as destination"
+        raise ValueError("not possible as destination")
 
     def __repr__(self):
         return '@%s+' % (self.reg)
@@ -725,7 +751,7 @@ class ImmediateArgument(Argument):
         return self.value
 
     def set(self, value):
-        raise "not possible as destination"
+        raise ValueError("not possible as destination")
 
     def __repr__(self):
         return '#0x%04x' % (self.value)
@@ -758,7 +784,7 @@ class JumpTarget:
         return self.offset
 
     def __repr__(self):
-        return '0x%04x' % (self.address+self.offset)
+        return '$%+d {->0x%04x}' % (self.offset+2, self.address+self.offset)
 
 ##################################################################
 ## argument conversion
@@ -1001,74 +1027,74 @@ class Core(Subject):
     
     def execJNZ(self, bytemode, offset):
         if not self.SR.Z:
-            self.PC.set(self.PC.get() + int(offset))
+            self.PC += offset
 
     def execJZ(self, bytemode, offset):
         if self.SR.Z:
-            self.PC.set(self.PC.get() + int(offset))
+            self.PC += offset
 
     def execJC(self, bytemode, offset):
         if self.SR.C:
-            self.PC.set(self.PC.get() + int(offset))
+            self.PC += offset
 
     def execJNC(self, bytemode, offset):
         if not self.SR.C:
-            self.PC.set(self.PC.get() + int(offset))
+            self.PC += offset
 
     def execJN(self, bytemode, offset):
         if not self.SR.N:
-            self.PC.set(self.PC.get() + int(offset))
+            self.PC += offset
     
     def execJGE(self, bytemode, offset):
         if not (self.SR.N ^ self.SR.V):
-            self.PC.set(self.PC.get() + int(offset))
+            self.PC += offset
 
     def execJL(self, bytemode, offset):
         if self.SR.N ^ self.SR.V:
-            self.PC.set(self.PC.get() + int(offset))
+            self.PC += offset
 
     def execJMP(self, bytemode, offset):
-        self.PC.set(self.PC.get() + int(offset))
+        self.PC += offset
 
     #------------------------
     # instruction tables
     #------------------------
 
     singleOperandInstructions = {
-        0x00: ('rrc',  execRRC,  0),
-        0x01: ('swpb', execSWPB, 0),
-        0x02: ('rra',  execRRA,  0),
-        0x03: ('sxt',  execSXT,  0),
-        0x04: ('push', execPUSH, 2),    #write of stack -> 2
-        0x05: ('call', execCALL, 3),    #write of stack -> 2, modify PC -> 1
-        0x06: ('reti', execRETI, 4),    #pop SR -> 1, pop PC -> 1, modify PC -> 1,  +1??
+        0x00<<7: ('rrc',  execRRC,  0),
+        0x01<<7: ('swpb', execSWPB, 0),
+        0x02<<7: ('rra',  execRRA,  0),
+        0x03<<7: ('sxt',  execSXT,  0),
+        0x04<<7: ('push', execPUSH, 2),    #write of stack -> 2
+        0x05<<7: ('call', execCALL, 3),    #write of stack -> 2, modify PC -> 1
+        0x06<<7: ('reti', execRETI, 4),    #pop SR -> 1, pop PC -> 1, modify PC -> 1,  +1??
     }
 
     doubleOperandInstructions = {
-        0x4: ('mov',  execMOV,  0),
-        0x5: ('add',  execADD,  0),
-        0x6: ('addc', execADDC, 0),
-        0x7: ('subc', execSUBC, 0),
-        0x8: ('sub',  execSUB,  0),
-        0x9: ('cmp',  execCMP,  0),
-        0xa: ('dadd', execDADD, 0),
-        0xb: ('bit',  execBIT,  0),
-        0xc: ('bic',  execBIC,  0),
-        0xd: ('bis',  execBIS,  0),
-        0xe: ('xor',  execXOR,  0),
-        0xf: ('and',  execAND,  0),
+        0x4000: ('mov',  execMOV,  0),
+        0x5000: ('add',  execADD,  0),
+        0x6000: ('addc', execADDC, 0),
+        0x7000: ('subc', execSUBC, 0),
+        0x8000: ('sub',  execSUB,  0),
+        0x9000: ('cmp',  execCMP,  0),
+        0xa000: ('dadd', execDADD, 0),
+        0xb000: ('bit',  execBIT,  0),
+        0xc000: ('bic',  execBIC,  0),
+        0xd000: ('bis',  execBIS,  0),
+        0xe000: ('xor',  execXOR,  0),
+        0xf000: ('and',  execAND,  0),
     }
 
-    jumpInstructions = {
-        0x0: ('jnz',  execJNZ,  1), #jne
-        0x1: ('jz',   execJZ,   1), #jeq
-        0x2: ('jnc',  execJNC,  1),
-        0x3: ('jc',   execJC,   1),
-        0x4: ('jn',   execJN,   1),
-        0x5: ('jge',  execJGE,  1),
-        0x6: ('jl',   execJL,   1),
-        0x7: ('jmp',  execJMP,  1),
-    }
+    jumpInstructions = (
+        ('jnz',  execJNZ,  1), #jne        0x0: 
+        ('jz',   execJZ,   1), #jeq        0x1: 
+        ('jnc',  execJNC,  1), #           0x2: 
+        ('jc',   execJC,   1), #           0x3: 
+        ('jn',   execJN,   1), #           0x4: 
+        ('jge',  execJGE,  1), #           0x5: 
+        ('jl',   execJL,   1), #           0x6: 
+        ('jmp',  execJMP,  1), #           0x7: 
+    )
 
     #------------------------
     # methods
@@ -1110,8 +1136,8 @@ class Core(Subject):
         self.memory.reset()
         self.notify()
 
-    def disassemble(self, pc):
-        """disasseble current PC location and advance PC to the next instruction.
+    def disassemble(self, pc, illegal_is_fatal=False):
+        """disassemble current PC location and advance PC to the next instruction.
         return a tuple with insn name, arguments (bytemode, arg1, arg2),
         core execution function for that insn and a cycle count.
         
@@ -1120,51 +1146,56 @@ class Core(Subject):
         opcode = pc.next()
         cycles = 1              #count cycles, start with insn fetch
         x = y = None
+        #jump instructions
+        if (opcode & 0xe000) == 0x2000:
+            name, fu, addcyles = self.jumpInstructions[(opcode>>10) & 0x7]
+            offset = (opcode & 0x3ff) << 1
+            if offset & 0x400:  #negative?
+                offset = -((~offset + 1) & 0x7ff)
+            cycles += addcyles #jumps allways have 2 cycles
+            return name, [0, JumpTarget(self, int(pc), offset)], fu, cycles
+
         #single operand
-        if ((opcode & 0xf000) == 0x1000 and
-                ((opcode>>7)&0x1f in self.singleOperandInstructions.keys())
-        ):
-            bytemode = (opcode>>6) & 1
+        elif (opcode & 0xf000) == 0x1000:
+            bytemode = bool(opcode & 0x40) #(opcode>>6) & 1
             x,y,c = addressMode(self, pc, bytemode,
                 as=(opcode>>4) & 3,
                 src=opcode & 0xf
                 )
-            name, fu, addcyles = self.singleOperandInstructions[(opcode>>7) & 0x1f]
-            cycles += c + addcyles #some functions have additional cycles (push etc)
-            return name, [bytemode, x], fu, cycles
+            try:
+                name, fu, addcyles = self.singleOperandInstructions[opcode & 0x0f80]
+            except KeyError:
+                pass
+            else:
+                cycles += c + addcyles #some functions have additional cycles (push etc)
+                return name, [bytemode, x], fu, cycles
 
         #double operand
-        elif (opcode>>12)&0xf in self.doubleOperandInstructions.keys():
-            bytemode = (opcode>>6) & 1
+        else:
+            bytemode = bool(opcode & 0x40) #(opcode>>6) & 1
             x,y,c = addressMode(self, pc, bytemode,
                 src=(opcode>>8) & 0xf,
                 ad=(opcode>>7) & 1,
                 as=(opcode>>4) & 3,
                 dest=opcode & 0xf
                 )
-            name, fu, addcyles = self.doubleOperandInstructions[(opcode>>12) & 0xf]
-            cycles += c + addcyles #some functions have additional cycles (push etc)
-            return name, [bytemode, x, y], fu, cycles
-
-        #jump instructions
-        elif ((opcode & 0xe000) == 0x2000 and
-             ((opcode>>10)&0x7 in self.jumpInstructions.keys())
-        ):
-            name, fu, addcyles = self.jumpInstructions[(opcode>>10) & 0x7]
-            offset = ((opcode&0x3ff)<<1)
-            if offset & 0x400:  #negative?
-                offset = -((~offset + 1) & 0x7ff)
-            cycles += addcyles #jumps allways have 2 cycles
-            return name, [0, JumpTarget(self, int(pc), offset)], fu, cycles
+            try:
+                name, fu, addcyles = self.doubleOperandInstructions[opcode & 0xf000]
+            except KeyError:
+                pass
+            else:
+                cycles += c + addcyles #some functions have additional cycles (push etc)
+                return name, [bytemode, x, y], fu, cycles
 
         #unkown instruction
-        else:
-            return 'illegal insn 0x%04x' % opcode, [0], None, cycles
+        if illegal_is_fatal:
+            raise MSP430CoreException('illegal instruction 0x%04x' % (opcode,))
+        return 'illegal insn 0x%04x' % opcode, [0], None, cycles
 
-    def step(self):
+    def step(self, illegal_is_fatal=False):
         """perform one single step"""
         address = int(self.PC)
-        name, args, execfu, cycles = self.disassemble(self.PC)
+        name, args, execfu, cycles = self.disassemble(self.PC, illegal_is_fatal)
         self.cycles += cycles
         note = "%s%s %s (%d cycles)" % (
             name,
@@ -1172,16 +1203,16 @@ class Core(Subject):
             ', '.join(map(str,args[1:])),
             cycles
         )
-        self.log.debug('step: %s' % (note,))
         if execfu:
+            self.log.info('step: %s' % (note,))
             apply(execfu, [self]+args)
         else:
-            self.log.warning("%s @0x%04x" % (name, address))
+            self.log.warning("step: %s @0x%04x" % (name, address))
         self.notify()
         return note
 
     def __repr__(self):
-        return ('%r\n'*16) % self.R
+        return ('%r\n'*15 + '%r') % self.R
 
 ##################################################################
 ## trace control object
@@ -1254,7 +1285,7 @@ if __name__ == '__main__':
     ))
     print core.memory.hexdump(0x0200, 0x02ff, log)
     tracer = Tracer(core)
-    tracer.start(0xf000, 43) #only N steps
+    tracer.start(0xf000, 50) #only N steps
     print "-"*40, "end"
     print core.memory.hexdump(0x0200, 0x02ff, log)
 

@@ -7,7 +7,7 @@
 # (C) 2002-2004 Chris Liechti <cliechti@gmx.net>
 # this is distributed under a free software license, see license.txt
 #
-# $Id: gdbserver.py,v 1.2 2005/12/31 00:25:06 cliechti Exp $
+# $Id: gdbserver.py,v 1.3 2005/12/31 04:27:36 cliechti Exp $
 
 import sys, socket, threading, binascii
 import Queue
@@ -21,6 +21,20 @@ def checksum(data):
         checksum = (checksum + ord(c)) & 0xff
     return checksum
 
+def unescape(data):
+    """decode binary packets with escapes"""
+    esc_found = False
+    out = []
+    for byte in data:
+        if esc_found:
+            out.append(byte ^ 0x20)
+            esc_found = False
+        elif byte == 0x7d:
+            esc_found = True
+        else:
+            out.append(byte)
+    return ''.join(out)
+
 
 class BreakpointRunner(threading.Thread):
     def __init__(self, core):
@@ -28,10 +42,18 @@ class BreakpointRunner(threading.Thread):
         self.core = core
         self.interrupted = False
         self.breakpoints = {}
+        #callback for signals
+        self.sig_trap = self._signal
+        self.sig_int = self._signal
+        self.sig_segv = self._signal
+        
         self.cmd_queue = Queue.Queue(1)
         threading.Thread.__init__(self)
-        self.setName('msp430 core')
+        self.setName('msp430 core runner')
         self.setDaemon(1)
+    
+    def _signal(self):
+        self.log.error('signal called but no callback registered')
         
     def set_breakpoint(self, address):
         self.breakpoints[address] = True
@@ -40,19 +62,24 @@ class BreakpointRunner(threading.Thread):
         if address in self.breakpoints:
             del self.breakpoints[address]
             
-    def command(self, cmd, action):
+    def command(self, cmd):
         self.log.info('queing remote command %r' % cmd)
-        self.cmd_queue.put((cmd, action))
+        self.cmd_queue.put(cmd)
     
     def interrupt(self):
+        self.log.info('interruption')
         self.interrupted = True
+        #empty command queue
+        while self.cmd_queue.qsize():
+            self.cmd_queue.get_nowait()
+            
 
     def run(self):
         """worker thread"""
         self.log.debug('worker thread started')
         while True:
             try:
-                command, action = self.cmd_queue.get()
+                command = self.cmd_queue.get()
                 self.log.info('executing remote command %r' % command)
                 if command == 'run':
                     self.interrupted = False
@@ -60,28 +87,34 @@ class BreakpointRunner(threading.Thread):
                     step_delta = 0
                     self.log.info('continuing from 0x%04x (cycle %d)' % (self.core.PC.get(), self.core.cycles))
                     while not self.interrupted:
-                        self.core.step()
-                        if self.core.PC.get() in self.breakpoints:
-                            self.log.info('breakpoint @0x%04x (cycle %d)' % (self.core.PC.get(), self.core.cycles))
-                            action()
+                        try:
+                            self.core.step(illegal_is_fatal=True)
+                        except core.MSP430CoreException, e:
+                            self.log.warning('could not execute instruction: %s' % e)
+                            self.sig_segv()
                             break
-                        step_delta += 1
-                        if step_delta > 1000:          #after a few steps..
-                            #time check is not done at every step for better performance
-                            step_delta = 0
-                            if time.time() - last_time > 3:     #check time, more than 1s passed?
-                                #yes, make a log message so that the user knows we're alive
-                                last_time = time.time()
-                                self.log.info('still running @0x%04x (cycle %d)' % (self.core.PC.get(), self.core.cycles))
+                        else:
+                            if self.core.PC.get() in self.breakpoints:
+                                self.log.info('breakpoint @0x%04x (cycle %d)' % (self.core.PC.get(), self.core.cycles))
+                                self.sig_trap()
+                                break
+                            step_delta += 1
+                            if step_delta > 1000:          #after a few steps..
+                                #time check is not done at every step for better performance
+                                step_delta = 0
+                                if time.time() - last_time > 3:     #check time, more than 1s passed?
+                                    #yes, make a log message so that the user knows we're alive
+                                    last_time = time.time()
+                                    self.log.info('still running @0x%04x (cycle %d)' % (self.core.PC.get(), self.core.cycles))
                     else:
                         self.log.info('interrupted @0x%04x (cycle %d)' % (self.core.PC.get(), self.core.cycles))
-                        action()
+                        self.sig_int()
                 elif command == 'step':
                     self.log.info('single step @0x%04x (cycle %d)' % (self.core.PC.get(), self.core.cycles))
                     self.core.step()
                     if self.core.PC.get() in self.breakpoints:
                         self.log.info('breakpoint @0x%04x (cycle %d)' % (self.core.PC.get(), self.core.cycles))
-                    action()
+                    self.sig_trap()
                 else:
                     self.log.error('unknown command %r' % (command, ))
             except:
@@ -116,6 +149,9 @@ class GDBClientHandler(threading.Thread):
         self.log = logging.getLogger("gdbclient")
         self.alive = True
         self.runner = BreakpointRunner(core)
+        self.runner.sig_trap = self._sigtrap
+        self.runner.sig_int = self._sigint
+        self.runner.sig_segv = self._sigsegv
         self.runner.start()
 
     def close(self):
@@ -126,10 +162,6 @@ class GDBClientHandler(threading.Thread):
         self.clientsocket.close()
         self.log.info("closed")
 
-    #~ def _answer_ok(self):
-    def _answer_sigtrap(self):
-        self.writePacket("S%02x" % (5,))    #SIGTRAP
-        
     def run(self):
         try:
             self.log.info("client loop ready...")
@@ -151,39 +183,73 @@ class GDBClientHandler(threading.Thread):
                         if len(pkt) > 1:
                             adr = int(pkt[1:],16)
                             self.core.PC.set(adr)
-                        self.runner.command('run', self._answer_sigtrap)
+                        self.runner.command('run')
                         #~ self.writePacket("S%02x" % (5,))    #SIGTRAP
+                    elif pkt[0] == "s":     #single step
+                        if len(pkt) > 1:
+                            adr = int(pkt[1:],16)
+                            self.core.PC.set(adr)
+                        self.runner.command('step')
                     elif pkt[0] == "D":     #detach
                         self.core.reset()
-                    elif pkt[0] == "g":     #Read general registers
-                        self.log.debug("Reading device registers")
+                        
+                    elif pkt[0] == "g":     #read registers
+                        self.log.info("Reading device registers")
                         self.writePacket(''.join(["%02x%02x" % (r.get()&0xff, (r.get()>>8)&0xff) for r in self.core.R]))
-                    elif pkt[0] == "G":     #write regs
-                        self.log.debug("Writing device registers")
+                    elif pkt[0] == "G":     #write registers
+                        self.log.info("Writing device registers")
                         for n, value in enumerate([int(pkt[i:i+2],16) + int(pkt[i+2:i+4],16)<<8 for i in range(1, 1+16*4, 4)]):
                             self.core.R[n].set(value)
-                        self.writePacket("OK")
+                        self.writeOK()
+                    elif pkt[0] == "p":     #read register
+                        reg = int(pkt[1:], 16)
+                        self.log.info("Reading device register R%d" % (reg))
+                        value = int(self.core.R[reg])
+                        self.writePacket("%02x%02x" % (value & 0xff, (value >> 8) & 0xff))
+                    elif pkt[0] == "P":     #write register
+                        reg, data = pkt[1:].split('=')
+                        reg = int(reg, 16)
+                        data = binascii.unhexlify(data)
+                        value = ord(data[0]) | (ord(data[1]) << 8)
+                        self.log.info("Writing device register R%d = 0x%04x" % (reg, value))
+                        self.core.R[reg].set(value)
+                        self.writeOK()
+                        
                     elif pkt[0] == "H":
-                        self.writePacket("OK")
+                        self.writeOK()
                     elif pkt[0] == "k":     #kill request
                         self.core.reset()
-                        self.writePacket("OK")
+                        self.writeOK()
                     elif pkt[0] == "m":     #read memory
-                        self.log.debug("Reading device memory")
                         fromadr, length = [int(x, 16) for x in pkt[1:].split(',')]
+                        self.log.info("Reading device memory @0x%04x %d bytes" % (fromadr, length))
                         mem = self.core.memory.read(fromadr, length)
-                        self.writePacket(''.join(["%02x" % ord(x) for x in mem]))
+                        self.writePacket(binascii.hexlify(mem))
                     elif pkt[0] == "M":     #write memory
-                        self.log.debug("Writing device memory")
                         meta, data = pkt.split(':')
                         fromadr, length = [int(x, 16) for x in meta[1:].split(',')]
-                        sdata = ''.join([chr(int(data[i:i+2],16)) for i in range(0,len(data),2)])
+                        self.log.info("Writing device memory @0x%04x %d bytes" % (fromadr, length))
+                        sdata = binascii.unhexlify(data)
                         try:
                             self.core.memory.write(fromadr, sdata)
                         except IOError:
-                            self.writePacket("E01") #write error
+                            self.writeError(1) #write error
                         else:
-                            self.writePacket("OK")
+                            self.writeOK()
+                    #~ elif pkt[0] == "X":     #write memory (binary)
+                        #~ meta, data = pkt.split(':')
+                        #~ fromadr, length = [int(x, 16) for x in meta[1:].split(',')]
+                        #~ if length:
+                            #~ self.log.info("Writing device memory @0x%04x %d bytes (X)" % (fromadr, length))
+                            #~ sdata = unescape(data)
+                            #~ try:
+                                #~ self.core.memory.write(fromadr, sdata)
+                            #~ except IOError:
+                                #~ self.writeError(1) #write error
+                            #~ else:
+                                #~ self.writeOK()
+                        #~ else:
+                            #~ self.writeOK()
                     elif pkt[0] == "q":     #remote commands
                         if pkt[1:5] == "Rcmd":
                             cmd = binascii.unhexlify(pkt.split(',')[1]).strip()
@@ -199,39 +265,36 @@ class GDBClientHandler(threading.Thread):
                                     getattr(self, method_name)(args)
                                 except:
                                     self.log.exception('error in monitor command')
-                                    self.writePacket("E03")
+                                    self.writeError(3)
                             else:
                                 self.log.warning('no such monitor command ("%s")' % command)
-                                self.writePacket("E02")
+                                self.writeError(2)
                         else:
-                            self.writePacket("E01") #commond not known
-                    elif pkt[0] == "s":     #single step
-                        if len(pkt) > 1:
-                            adr = int(pkt[1:],16)
-                            self.core.PC.set(adr)
-                        self.runner.command('step', self._answer_sigtrap)
+                            self.writeError(1) #commond not known
+                    
                     elif pkt[0] == "Z":     #set break or watchpoint
                         ty, adr, length = pkt[1:].split(',')
                         if ty == '0':
-                            self.log.debug("Setting breakpoint")
-                            self.runner.set_breakpoint(int(adr,16))
-                            self.writePacket("OK")
+                            address = int(adr,16)
+                            self.log.info("Setting breakpoint @0x%04x" % (address))
+                            self.runner.set_breakpoint(address)
+                            self.writeOK()
                         else:
-                            self.writePacket("E%02x" % (1,))
+                            self.writeError(1)
                     elif pkt[0] == "z":     #remove break or watchpoint
                         ty, adr, length = pkt[1:].split(',')
                         if ty == '0':
-                            self.log.debug("Clearing breakpoint")
-                            adr = int(adr,16)
-                            if adr in self.runner.breakpoints:
-                                self.runner.remove_breakpoint(adr)
-                                self.writePacket("OK")
+                            address = int(adr,16)
+                            self.log.info("Clearing breakpoint @0x%04x" % (address))
+                            if address in self.runner.breakpoints:
+                                self.runner.remove_breakpoint(address)
+                                self.writeOK()
                             else:
-                                self.writePacket("E%02x" % (2,))
+                                self.writeError(2)
                         else:
-                            self.writePacket("E%02x" % (1,))
+                            self.writeError(1)
                     else:   #command not supported
-                        self.log.debug("Unsupported comand %r" % pkt)
+                        self.log.warning("Unsupported comand %r" % pkt)
                         self.writePacket("")
         finally:
             self.close()
@@ -241,7 +304,7 @@ class GDBClientHandler(threading.Thread):
         gdbcommand = 0
         csum = 0
         packet = []
-        while 1:
+        while True:
             c = self.netin.read(1)
             if not c: self.close() #EOF
             if c == '\x03':     #ctrl+c
@@ -265,9 +328,22 @@ class GDBClientHandler(threading.Thread):
         self.netout.write("$%s#%02x" % (msg, checksum(msg)))
         self.netout.flush()
 
+    def writeOK(self):
+        self.writePacket("OK")
+        
+    def writeError(self, errorcode=0):
+        self.writePacket("E%02x" % (errorcode,))
+    
     def writeMessage(self, msg):
         self.writePacket("O%s" % binascii.hexlify(msg))
 
+    def writeSignal(self, signal):
+        self.writePacket("S%02x" % (signal,))
+
+    def _sigtrap(self): self.writeSignal(5)
+    def _sigint(self): self.writeSignal(2)
+    def _sigsegv(self): self.writeSignal(11)
+    
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     
     def monitor_help(self, args):
@@ -276,13 +352,13 @@ class GDBClientHandler(threading.Thread):
         for name in dir(self):
             if name.startswith('monitor_'):
                 self.writeMessage("%-10s: %s\n" % (name[8:], getattr(self, name).__doc__))
-        self.writePacket("OK")
+        self.writeOK()
         
     #~ def monitor_eval(self, args):
         #~ """evaluate python expression !Security risk!"""
         #~ ans = eval(args)
         #~ self.writeMessage("%r\n" % (ans,))
-        #~ self.writePacket("OK")
+        #~ self.writeOK()
     
     def monitor_erase(self, args):
         """erase flash"""
@@ -291,28 +367,30 @@ class GDBClientHandler(threading.Thread):
         #~ elif args == 'info':
         #~ elif args in ('', 'all'):
         #~ else: #accept "address size"
-        self.writePacket("OK")
+        self.writeOK()
 
     def monitor_puc(self, args):
         """reset target"""
         self.core.reset()
-        self.writePacket("OK")
+        self.writeOK()
         
     def monitor_reset(self, args):
         """reset target"""
         self.core.reset()
-        self.writePacket("OK")
+        self.writeOK()
 
     def monitor_vcc(self, args):
         """set adapter VCC, ignored. here to be compatible with the real gdbproxy"""
-        self.writePacket("OK")
+        self.writeOK()
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.WARN)
     #~ logging.basicConfig(level=logging.DEBUG)
-    log = logging.getLogger('trace')
-    
+    log = logging.getLogger('gdbclient').setLevel(level=logging.INFO)
+    #~ log = logging.getLogger('gdbclient').setLevel(level=logging.DEBUG)
+    logging.getLogger("runner").setLevel(level=logging.INFO)
+
     msp430 = core.Core()
     msp430.memory.append(core.Multiplier())
     

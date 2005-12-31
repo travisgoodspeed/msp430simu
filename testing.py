@@ -88,8 +88,8 @@ class Testing(core.Peripheral):
         return 0    #no functionality right now
 
 class TestCore(core.Core):
-    def __init__(self, log):
-        core.Core.__init__(self, log)
+    def __init__(self):
+        core.Core.__init__(self)
         self.testing = Testing(log)
         self.memory.append(self.testing)    #insert new peripherals in MSP's address pace
         self.memory.append(core.Multiplier())
@@ -124,7 +124,7 @@ if __name__ == '__main__':
     for f in sys.argv[1:]:
         print "Running Test: %s ...\n" % f
         log.info("Running Test: %s ..." % f)
-        msp = TestCore(log)
+        msp = TestCore()
         msp.memory.load(f)
         msp.start()
         failures += msp.testing.failures
