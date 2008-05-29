@@ -5,7 +5,7 @@
 # (C) 2002-2004 Chris Liechti <cliechti@gmx.net>
 # this is distributed under a free software license, see license.txt
 #
-# $Id: core.py,v 1.19 2005/12/31 04:27:36 cliechti Exp $
+# $Id: core.py,v 1.20 2008/05/29 13:48:17 cliechti Exp $
 
 import sys
 import logging
@@ -302,7 +302,7 @@ class Flash(Peripheral):
 
     def reset(self):
         """perform a power up reset"""
-        #~ self.values = [0xff] * (self.endaddress - self.startaddress + 1)
+        self.values = [0xff] * (self.endaddress - self.startaddress + 1)
 
     def set(self, address, value, bytemode=0):
         """write value to address"""
@@ -344,7 +344,7 @@ class RAM(Peripheral):
 
     def reset(self):
         """perform a power up reset"""
-        #~ self.values = [0] * (self.endaddress - self.startaddress + 1)
+        self.values = [0] * (self.endaddress - self.startaddress + 1)
 
     def set(self, address, value, bytemode=0):
         """write value to address"""
