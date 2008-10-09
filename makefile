@@ -29,7 +29,7 @@ hwmultest: hwmultest.a43 force
 	./testing.py hwmultest.a43
 
 hwmul32.o: hwmul32.s
-	msp430-gcc -x assembler-with-cpp ${ASMOPT} -D_GNU_ASSEMBLER_ -o $@ -c $<
+	msp430-gcc -x assembler-with-cpp ${ASMOPT} -o $@ -c $<
 
 clean:
 	rm -f testing_example.elf testing_example.a43 testing_example.o
