@@ -4,7 +4,7 @@ Testing the HW multiplier in the simu.
 (C) 2002 cliechti@gmx.net
 */
 
-#include <io.h>
+#include <msp430.h>
 #include "testing.h"
 
 long long umul32(long b, long a);

@@ -1,7 +1,7 @@
-COPT= -mmcu=msp430x135 -O2
+COPT= -mmcu=msp430f135 -O2
 
 all:    testing_example.a43 force
-	./testing.py testing_example.a43
+	python testing.py testing_example.a43
 
 testing_example.a43: testing_example.elf
 	msp430-objcopy -O ihex $< $@
@@ -11,7 +11,7 @@ testing_example.elf: testing_example.c
 	msp430-gcc ${COPT} -o $@ $<
 	msp430-gcc ${COPT} -S $< >/dev/null
 
-CPU=msp430x149
+CPU=msp430f149
 COPT= -mmcu=${CPU} -O2
 ASMOPT= -mmcu=${CPU}
 
@@ -26,13 +26,13 @@ hwmultest.o: hwmultest.c
 	msp430-gcc ${COPT} -S $< >/dev/null
 
 hwmultest: hwmultest.a43 force
-	./testing.py hwmultest.a43
+	python testing.py hwmultest.a43
 
 hwmul32.o: hwmul32.s
 	msp430-gcc -x assembler-with-cpp ${ASMOPT} -o $@ -c $<
 
 clean:
 	rm -f testing_example.elf testing_example.a43 testing_example.o
-        
+
 .PHONY: force
 force:

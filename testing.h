@@ -2,7 +2,7 @@
 #define TESTING_H
 
 //#include <iomacros.h>
-void test_puts(char * text);
+static void test_puts(char * text);
 
 //peripheral address    (max range: 0x01B0-0x1ff)
 

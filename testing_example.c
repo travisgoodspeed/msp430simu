@@ -16,7 +16,7 @@ use variables to avoid that the precompiler inserts the result
 instead of getting real msp430 code etc.
 */
 
-#include <io.h>
+#include <msp430.h>
 #include "testing.h"
 
 char a,b;
