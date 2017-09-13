@@ -7,8 +7,8 @@ beer.
 
 This simulator is a bit minimal, and doesn't support the MSP430X or
 MSP430X2 extensions, but it's incredibly easy to hook and patch.  I've
-grabbed it from its old (CVS
-Repository)[http://mspgcc.sourceforge.net/tools.html] on Sourceforge,
+grabbed it from its old [CVS
+Repository](http://mspgcc.sourceforge.net/tools.html) on Sourceforge,
 upgraded it to be compatible with Python 2.7 and GCC 4.6, but
 otherwise retained Chris's original design.
 
@@ -46,6 +46,6 @@ coverage grows.
 ## See Also
 
 For a complete system simulator, those who don't mind Java should try
-(MSPSim)[http://github.com/mspsim/mspsim], which has support for many
+[MSPSim](http://github.com/mspsim/mspsim), which has support for many
 peripherals and more modern CPU cores.
 
