@@ -792,23 +792,24 @@ class JumpTarget:
 # take arguments from core for insn and return wrappers
 #(wrapper factory)
 
-def addressMode(core, pc, bytemode, as = None, ad = None, src = None, dest = None):
+def addressMode(core, pc, bytemode, asflag = None, ad = None, src = None, dest = None):
     """return two arguments wrappers and a cycle count for the use of both"""
     x = y = None
     c = 0
     #source first
-    if as is not None:  #CG2
-        if src == 2 and as > 1:
-            x = RegisterArgument(core,reg=core.R[src], bytemode=bytemode, am=as)
-            #m = "#%d" % (None,None,4,8)[as]
+    
+    if asflag is not None:  #CG2
+        if src == 2 and asflag > 1:
+            x = RegisterArgument(core,reg=core.R[src], bytemode=bytemode, am=asflag)
+            #m = "#%d" % (None,None,4,8)[asflag]
         elif src == 3:  #CG3
-            x = RegisterArgument(core,reg=core.R[src], bytemode=bytemode, am=as)
-            #m = "#%d" % (0,1,2,0xffff)[as]
+            x = RegisterArgument(core,reg=core.R[src], bytemode=bytemode, am=asflag)
+            #m = "#%d" % (0,1,2,0xffff)[asflag]
         else:
-            if   as == 0:   #register mode
+            if   asflag == 0:   #register mode
                 #m = '%(srcname)s'
-                x = RegisterArgument(core,reg=core.R[src], bytemode=bytemode, am=as)
-            elif as == 1:   #pc rel
+                x = RegisterArgument(core,reg=core.R[src], bytemode=bytemode, am=asflag)
+            elif asflag == 1:   #pc rel
                 if src == 0:
                     #m = '%%(x)04x'
                     x = IndexedRegisterArgument(core, reg=core.PC, offset=pc.next(), bytemode=bytemode)
@@ -821,11 +822,11 @@ def addressMode(core, pc, bytemode, as = None, ad = None, src = None, dest = Non
                     #m = '%%(x)04x(%(srcname)s)'
                     x = IndexedRegisterArgument(core, reg=core.R[src], offset=pc.next(), bytemode=bytemode)
                     c += 2  #fetch+read
-            elif as == 2:   #indirect
+            elif asflag == 2:   #indirect
                 #m = '@%(srcname)s'
                 x = IndirectRegisterArgument(core, reg=core.R[src], bytemode=bytemode)
                 c += 1  #target mem read
-            elif as == 3:
+            elif asflag == 3:
                 if src == 0:    #immediate
                     #m = '#%%(x)d'
                     x = ImmediateArgument(core, value=pc.next(), bytemode=bytemode)
@@ -1159,7 +1160,7 @@ class Core(Subject):
         elif (opcode & 0xf000) == 0x1000:
             bytemode = bool(opcode & 0x40) #(opcode>>6) & 1
             x,y,c = addressMode(self, pc, bytemode,
-                as=(opcode>>4) & 3,
+                asflag=(opcode>>4) & 3,
                 src=opcode & 0xf
                 )
             try:
@@ -1176,7 +1177,7 @@ class Core(Subject):
             x,y,c = addressMode(self, pc, bytemode,
                 src=(opcode>>8) & 0xf,
                 ad=(opcode>>7) & 1,
-                as=(opcode>>4) & 3,
+                asflag=(opcode>>4) & 3,
                 dest=opcode & 0xf
                 )
             try:
