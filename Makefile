@@ -1,5 +1,3 @@
-COPT= -mmcu=msp430f135 -O2
-
 all:    testing_example.a43 force
 	python testing.py testing_example.a43
 
@@ -32,7 +30,7 @@ hwmul32.o: hwmul32.s
 	msp430-gcc -x assembler-with-cpp ${ASMOPT} -o $@ -c $<
 
 clean:
-	rm -f testing_example.elf testing_example.a43 testing_example.o
+	rm -f testing_example.elf testing_example.a43 testing_example.o testing.log
 
 .PHONY: force
 force:
